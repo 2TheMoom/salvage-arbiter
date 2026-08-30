@@ -1,20 +1,29 @@
-# Sample GenLayer project
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/license/mit/)
-[![Discord](https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white)](https://discord.gg/8Jm4v89VAu)
-[![Telegram](https://img.shields.io/badge/Telegram--T.svg?style=social&logo=telegram)](https://t.me/genlayer)
-[![Twitter](https://img.shields.io/twitter/url/https/twitter.com/yeagerai.svg?style=social&label=Follow%20%40GenLayer)](https://x.com/GenLayer)
-[![GitHub star chart](https://img.shields.io/github/stars/yeagerai/genlayer-project-boilerplate?style=social)](https://star-history.com/#yeagerai/genlayer-js)
+# Salvage Arbiter
 
 ## About
-This project includes the boilerplate code for a GenLayer use case implementation, specifically a football bets game.
+An Intelligent Contract on [GenLayer](https://genlayer.foundation) that adjudicates
+cryptocurrency fund-recovery claims. A claimant asserts ownership of a compromised/
+drained wallet and points to public evidence (a signed message, a social post proving
+control of the address, etc). GenLayer validators independently fetch that evidence,
+reason over it with an LLM, and reach consensus on a verdict — approved, denied, or
+insufficient — via the equivalence principle. The result is an on-chain attestation
+that an off-chain recovery flow (e.g. [Salvage](https://github.com/)'s cross-chain
+rescue router) can require before releasing recovered funds to a claimant, instead of
+relying solely on manual/offline verification.
+
+This started from GenLayer's official
+[project boilerplate](https://github.com/genlayerlabs/genlayer-project-boilerplate);
+the original `football_bets.py` sample contract and its tests are kept around under
+`contracts/` and `tests/` as a working reference for the SDK patterns (web fetch + LLM
++ equivalence principle) this project builds on.
 
 ## What's included
-- An example intelligent contract (Football Bets) with web access and LLM integration
-- **Direct mode tests** — fast, in-memory unit tests with web/LLM mocking (~ms per test)
-- **Integration tests** — full end-to-end tests against GenLayer Studio
+- `contracts/recovery_arbiter.py` — the RecoveryArbiter Intelligent Contract
+- `tests/direct/test_recovery_arbiter.py` — direct-mode tests (in-memory, mocked web/LLM)
 - **Contract linting** — static analysis to catch common contract issues before deployment
 - **CI pipeline** — GitHub Actions workflow for linting and direct tests
-- A production-ready Next.js 15 frontend with TypeScript, TanStack Query, and Radix UI
+- A Next.js 15 frontend scaffold (TypeScript, TanStack Query, Radix UI) — not yet wired
+  to RecoveryArbiter, still calls the sample football-bets contract
 - Configuration file template and deployment scripts
 
 ## Requirements
