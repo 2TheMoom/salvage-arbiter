@@ -2,7 +2,6 @@
 
 import { Navbar } from "@/components/Navbar";
 import { ClaimsTable } from "@/components/ClaimsTable";
-import { MyClaimsPanel } from "@/components/MyClaimsPanel";
 import { DeploymentBanner } from "@/components/DeploymentBanner";
 
 export default function AppPage() {
@@ -14,14 +13,8 @@ export default function AppPage() {
         <div className="max-w-7xl mx-auto space-y-6">
           <DeploymentBanner />
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8">
-            <div className="lg:col-span-8 animate-slide-up">
-              <ClaimsTable />
-            </div>
-
-            <div className="lg:col-span-4 animate-slide-up" style={{ animationDelay: "100ms" }}>
-              <MyClaimsPanel />
-            </div>
+          <div className="animate-slide-up">
+            <ClaimsTable />
           </div>
         </div>
       </main>

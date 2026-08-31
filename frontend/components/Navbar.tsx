@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { FileCheck2, ShieldCheck } from "lucide-react";
 import { AccountPanel } from "./AccountPanel";
 import { SubmitClaimModal } from "./SubmitClaimModal";
@@ -85,8 +86,8 @@ export function Navbar() {
               className="flex items-center justify-between transition-all duration-500"
               style={{ height: `${headerHeight}px` }}
             >
-              {/* Left: Logo */}
-              <div className="flex items-center gap-3 min-w-0">
+              {/* Left: Logo - links back to the landing page */}
+              <Link href="/" className="flex items-center gap-3 min-w-0">
                 {/* Show mark only on mobile, full logo on desktop.
                     Wrapped in plain divs rather than passing "hidden"/"flex"
                     into Logo's own className: its internal wrapper hardcodes
@@ -99,7 +100,7 @@ export function Navbar() {
                 <div className="hidden md:flex shrink-0">
                   <Logo size="md" />
                 </div>
-              </div>
+              </Link>
 
               {/* Center: Stats */}
               <div className="hidden md:flex items-center gap-2">

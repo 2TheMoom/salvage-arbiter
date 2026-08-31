@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { User, LogOut, AlertCircle, ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { User, AlertCircle, ExternalLink } from "lucide-react";
 import { useWallet } from "@/lib/genlayer/wallet";
 import { useClaimsByAddress } from "@/lib/hooks/useRecoveryArbiter";
-import { success, error, userRejected } from "@/lib/utils/toast";
+import { error, userRejected } from "@/lib/utils/toast";
 import { AddressDisplay } from "./AddressDisplay";
 import { Button } from "./ui/button";
 import {
@@ -20,16 +21,7 @@ import { Alert, AlertDescription, AlertTitle } from "./ui/alert";
 const METAMASK_INSTALL_URL = "https://metamask.io/download/";
 
 export function AccountPanel() {
-  const {
-    address,
-    isConnected,
-    isMetaMaskInstalled,
-    isOnCorrectNetwork,
-    isLoading,
-    connectWallet,
-    disconnectWallet,
-    switchWalletAccount,
-  } = useWallet();
+  const { address, isConnected, isMetaMaskInstalled, isLoading, connectWallet } = useWallet();
 
   const { data: myClaims = [] } = useClaimsByAddress(address);
   const claimCount = myClaims.length;
@@ -37,7 +29,6 @@ export function AccountPanel() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [connectionError, setConnectionError] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isSwitching, setIsSwitching] = useState(false);
 
   const handleConnect = async () => {
     if (!isMetaMaskInstalled) {
@@ -62,34 +53,6 @@ export function AccountPanel() {
       }
     } finally {
       setIsConnecting(false);
-    }
-  };
-
-  const handleDisconnect = () => {
-    disconnectWallet();
-    setIsModalOpen(false);
-  };
-
-  const handleSwitchAccount = async () => {
-    try {
-      setIsSwitching(true);
-      setConnectionError("");
-      await switchWalletAccount();
-      // Keep modal open to show new account info
-    } catch (err: any) {
-      console.error("Failed to switch account:", err);
-
-      // Don't show error if user cancelled
-      if (!err.message?.includes("rejected")) {
-        setConnectionError(err.message || "Failed to switch account");
-        error("Failed to switch account", {
-          description: err.message || "Please try again."
-        });
-      } else {
-        userRejected("Account switch cancelled");
-      }
-    } finally {
-      setIsSwitching(false);
     }
   };
 
@@ -179,118 +142,27 @@ export function AccountPanel() {
     );
   }
 
-  // Connected state
+  // Connected state - the icon button links to a dedicated profile page
+  // (wallet details + full claim history) rather than opening a dialog.
   return (
-    <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-      <div className="flex items-center gap-4">
-        <div className="brand-card px-4 py-2 flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <User className="w-4 h-4 text-accent" />
-            <AddressDisplay address={address} maxLength={12} />
-          </div>
-          <div className="h-4 w-px bg-white/10" />
-          <div className="flex items-center gap-1">
-            <span className="text-sm font-semibold text-accent">{claimCount}</span>
-            <span className="text-xs text-muted-foreground">claims</span>
-          </div>
+    <div className="flex items-center gap-4">
+      <div className="brand-card px-4 py-2 flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <User className="w-4 h-4 text-accent" />
+          <AddressDisplay address={address} maxLength={12} />
         </div>
-
-        <DialogTrigger asChild>
-          <Button variant="outline" size="sm">
-            <User className="w-4 h-4" />
-          </Button>
-        </DialogTrigger>
+        <div className="h-4 w-px bg-white/10" />
+        <div className="flex items-center gap-1">
+          <span className="text-sm font-semibold text-accent">{claimCount}</span>
+          <span className="text-xs text-muted-foreground">claims</span>
+        </div>
       </div>
 
-      <DialogContent className="brand-card border-2">
-        <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">
-            Wallet Details
-          </DialogTitle>
-          <DialogDescription>
-            Your connected MetaMask wallet information
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 mt-4">
-          <div className="brand-card p-4 space-y-2">
-            <p className="text-sm text-muted-foreground">Your Address</p>
-            <code className="text-sm font-mono break-all">{address}</code>
-          </div>
-
-          <div className="brand-card p-4 space-y-2">
-            <p className="text-sm text-muted-foreground">Your Claims</p>
-            <p className="text-2xl font-bold text-accent">{claimCount}</p>
-          </div>
-
-          <div className="brand-card p-4 space-y-2">
-            <p className="text-sm text-muted-foreground">Network Status</p>
-            <div className="flex items-center gap-2">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  isOnCorrectNetwork
-                    ? "bg-green-500"
-                    : "bg-yellow-500 animate-pulse"
-                }`}
-              />
-              <span className="text-sm">
-                {isOnCorrectNetwork
-                  ? "Connected to GenLayer"
-                  : "Wrong Network"}
-              </span>
-            </div>
-          </div>
-
-          {!isOnCorrectNetwork && (
-            <Alert variant="default" className="bg-yellow-500/10 border-yellow-500/20">
-              <AlertCircle className="h-4 w-4 text-yellow-500" />
-              <AlertTitle>Network Warning</AlertTitle>
-              <AlertDescription>
-                You&apos;re not on the GenLayer network. Please switch networks in
-                MetaMask or try reconnecting.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {connectionError && (
-            <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{connectionError}</AlertDescription>
-            </Alert>
-          )}
-
-          <div className="mt-6 pt-4 border-t border-white/10 space-y-3">
-            <Button
-              onClick={handleSwitchAccount}
-              variant="outline"
-              className="w-full"
-              disabled={isSwitching || isLoading}
-            >
-              <User className="w-4 h-4 mr-2" />
-              {isSwitching ? "Switching..." : "Switch Account"}
-            </Button>
-
-            <Button
-              onClick={handleDisconnect}
-              className="w-full text-destructive hover:text-destructive"
-              variant="outline"
-              disabled={isSwitching || isLoading}
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Disconnect Wallet
-            </Button>
-          </div>
-
-          <div className="p-4 rounded-lg bg-muted/10 border border-muted/20">
-            <p className="text-xs text-muted-foreground">
-              Use &quot;Switch Account&quot; to select a different MetaMask
-              account. Use &quot;Disconnect&quot; to remove this site from
-              MetaMask.
-            </p>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+      <Button asChild variant="outline" size="sm">
+        <Link href="/app/profile" aria-label="Profile">
+          <User className="w-4 h-4" />
+        </Link>
+      </Button>
+    </div>
   );
 }
