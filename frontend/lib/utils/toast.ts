@@ -10,9 +10,9 @@ const defaultOptions: ExternalToast = {
   duration: 4000,
   closeButton: true,
   style: {
-    background: 'hsl(var(--background))',
-    border: '1px solid hsl(var(--border))',
-    color: 'hsl(var(--foreground))',
+    background: 'var(--background)',
+    border: '1px solid var(--border)',
+    color: 'var(--foreground)',
   },
 };
 
@@ -22,9 +22,9 @@ export const success = (message: string, options?: ExternalToast) => {
     ...defaultOptions,
     duration: 4000,
     style: {
-      background: 'hsl(var(--background))',
-      border: '1px solid hsl(var(--accent) / 0.3)',
-      color: 'hsl(var(--accent))',
+      background: 'var(--background)',
+      border: '1px solid color-mix(in oklch, var(--accent) 30%, transparent)',
+      color: 'var(--accent)',
       ...options?.style,
     },
     ...options,
@@ -37,9 +37,9 @@ export const error = (message: string, options?: ExternalToast) => {
     ...defaultOptions,
     duration: 6000, // Longer for errors
     style: {
-      background: 'hsl(var(--background))',
-      border: '1px solid hsl(var(--destructive) / 0.5)',
-      color: 'hsl(var(--destructive))',
+      background: 'var(--background)',
+      border: '1px solid color-mix(in oklch, var(--destructive) 50%, transparent)',
+      color: 'var(--destructive)',
       ...options?.style,
     },
     ...options,
@@ -52,7 +52,7 @@ export const warning = (message: string, options?: ExternalToast) => {
     ...defaultOptions,
     duration: 5000,
     style: {
-      background: 'hsl(var(--background))',
+      background: 'var(--background)',
       border: '1px solid rgb(234 179 8 / 0.3)', // yellow-500/30
       color: 'rgb(250 204 21)', // yellow-400
       ...options?.style,
@@ -109,9 +109,9 @@ export const configError = (message: string, description?: string, action?: { la
       onClick: action.onClick,
     } : undefined,
     style: {
-      background: 'hsl(var(--background))',
-      border: '1px solid hsl(var(--destructive) / 0.5)',
-      color: 'hsl(var(--destructive))',
+      background: 'var(--background)',
+      border: '1px solid color-mix(in oklch, var(--destructive) 50%, transparent)',
+      color: 'var(--destructive)',
     },
   });
 };
@@ -122,9 +122,9 @@ export const userRejected = (message: string) => {
     duration: 2000,
     closeButton: false,
     style: {
-      background: 'hsl(var(--background))',
-      border: '1px solid hsl(var(--border))',
-      color: 'hsl(var(--muted-foreground))',
+      background: 'var(--background)',
+      border: '1px solid var(--border)',
+      color: 'var(--muted-foreground)',
     },
   });
 };

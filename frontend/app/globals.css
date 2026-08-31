@@ -1,94 +1,70 @@
 @import "tailwindcss";
 
-/* GenLayer Brand Guidelines 2025 - Typography via local fonts */
-/* --font-body / --font-display: Switzer */
-
-@font-face {
-  font-family: 'Switzer';
-  src: url('/fonts/Switzer-Light.woff2') format('woff2');
-  font-weight: 300;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Switzer';
-  src: url('/fonts/Switzer-Regular.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Switzer';
-  src: url('/fonts/Switzer-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
+/* Typography: --font-body / --font-display are set by next/font/google in
+   layout.tsx (Plus Jakarta Sans / Fraunces) via the "variable" option -
+   no local @font-face needed here. */
 
 @custom-variant dark (&:is(.dark *));
 
-/* GenLayer Brand Colors 2025 */
+/* Salvage Arbiter Brand Colors - "Salvage Torch": warm gold/coral recovered
+   from the wreck, against a deep warm-black night. Deliberately distinct
+   from status colors (green/red/orange/yellow) used for verdicts. */
 :root {
-  --font-body: 'Switzer';
-  --font-display: 'Switzer';
-
-  /* Base colors - keep black background for dark theme */
+  /* Base colors - warm-tinted black, not cool navy-black */
   --background: oklch(0 0 0);
   --foreground: oklch(0.98 0 0);
 
-  /* Cards with navy tint per brand guidelines */
-  --card: oklch(0.25 0.08 265);
+  /* Cards with warm ember tint */
+  --card: oklch(0.24 0.03 65);
   --card-foreground: oklch(0.98 0 0);
-  --popover: oklch(0.25 0.08 265);
+  --popover: oklch(0.24 0.03 65);
   --popover-foreground: oklch(0.98 0 0);
 
-  /* Primary: Purple-Pink Gradient (#9B6AF6 → #E37DF7) */
-  --primary: oklch(0.65 0.22 300);
-  --primary-foreground: oklch(0.98 0 0);
+  /* Primary: Gold-Coral Gradient (#F2B84B → #FF6B4A) */
+  --primary: oklch(0.78 0.15 75);
+  --primary-foreground: oklch(0.15 0.02 65);
 
-  /* Secondary: Navy Blue (#282B5D) */
-  --secondary: oklch(0.25 0.08 265);
+  /* Secondary: Warm ember */
+  --secondary: oklch(0.24 0.03 65);
   --secondary-foreground: oklch(0.98 0 0);
 
   /* Muted states */
-  --muted: oklch(0.18 0.04 265);
-  --muted-foreground: oklch(0.55 0 0);
+  --muted: oklch(0.18 0.02 65);
+  --muted-foreground: oklch(0.58 0 0);
 
-  /* Accent: Purple (brand primary) */
-  --accent: oklch(0.65 0.22 300);
-  --accent-foreground: oklch(0.98 0 0);
+  /* Accent: Gold (brand primary) */
+  --accent: oklch(0.78 0.15 75);
+  --accent-foreground: oklch(0.15 0.02 65);
 
-  /* Brand Blue: #110FFF */
-  --blue: oklch(0.55 0.37 265);
+  /* Secondary accent: deep teal, used sparingly for contrast */
+  --blue: oklch(0.62 0.09 200);
   --blue-foreground: oklch(0.98 0 0);
 
-  /* Brand Pink (gradient end): #E37DF7 */
-  --pink: oklch(0.78 0.18 330);
+  /* Coral (gradient end) */
+  --pink: oklch(0.68 0.19 35);
 
-  /* Destructive remains red */
+  /* Destructive remains red - semantic, not brand */
   --destructive: oklch(0.65 0.25 25);
   --destructive-foreground: oklch(0.98 0 0);
 
-  /* Borders and inputs with navy tint */
-  --border: oklch(0.25 0.08 265);
-  --input: oklch(0.20 0.06 265);
-  --ring: oklch(0.65 0.22 300);
+  /* Borders and inputs with warm ember tint */
+  --border: oklch(0.32 0.04 65);
+  --input: oklch(0.20 0.03 65);
+  --ring: oklch(0.78 0.15 75);
 
   /* Chart colors using brand palette */
-  --chart-1: oklch(0.65 0.22 300); /* Purple */
-  --chart-2: oklch(0.78 0.18 330); /* Pink */
-  --chart-3: oklch(0.55 0.37 265); /* Blue */
-  --chart-4: oklch(0.25 0.08 265); /* Navy */
-  --chart-5: oklch(0.60 0.20 315); /* Purple-Pink mid */
+  --chart-1: oklch(0.78 0.15 75); /* Gold */
+  --chart-2: oklch(0.68 0.19 35); /* Coral */
+  --chart-3: oklch(0.62 0.09 200); /* Teal */
+  --chart-4: oklch(0.24 0.03 65); /* Ember */
+  --chart-5: oklch(0.72 0.17 55); /* Gold-Coral mid */
 
   --radius: 0.5rem;
 
   /* Sidebar colors */
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.65 0.22 300);
+  --sidebar-primary: oklch(0.78 0.15 75);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
@@ -100,36 +76,36 @@
 .dark {
   --background: oklch(0 0 0);
   --foreground: oklch(0.98 0 0);
-  --card: oklch(0.25 0.08 265);
+  --card: oklch(0.24 0.03 65);
   --card-foreground: oklch(0.98 0 0);
-  --popover: oklch(0.25 0.08 265);
+  --popover: oklch(0.24 0.03 65);
   --popover-foreground: oklch(0.98 0 0);
-  --primary: oklch(0.65 0.22 300);
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.25 0.08 265);
+  --primary: oklch(0.78 0.15 75);
+  --primary-foreground: oklch(0.15 0.02 65);
+  --secondary: oklch(0.24 0.03 65);
   --secondary-foreground: oklch(0.98 0 0);
-  --muted: oklch(0.18 0.04 265);
-  --muted-foreground: oklch(0.55 0 0);
-  --accent: oklch(0.65 0.22 300);
-  --accent-foreground: oklch(0.98 0 0);
+  --muted: oklch(0.18 0.02 65);
+  --muted-foreground: oklch(0.58 0 0);
+  --accent: oklch(0.78 0.15 75);
+  --accent-foreground: oklch(0.15 0.02 65);
   --destructive: oklch(0.65 0.25 25);
   --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.25 0.08 265);
-  --input: oklch(0.20 0.06 265);
-  --ring: oklch(0.65 0.22 300);
-  --chart-1: oklch(0.65 0.22 300);
-  --chart-2: oklch(0.78 0.18 330);
-  --chart-3: oklch(0.55 0.37 265);
-  --chart-4: oklch(0.25 0.08 265);
-  --chart-5: oklch(0.60 0.20 315);
+  --border: oklch(0.32 0.04 65);
+  --input: oklch(0.20 0.03 65);
+  --ring: oklch(0.78 0.15 75);
+  --chart-1: oklch(0.78 0.15 75);
+  --chart-2: oklch(0.68 0.19 35);
+  --chart-3: oklch(0.62 0.09 200);
+  --chart-4: oklch(0.24 0.03 65);
+  --chart-5: oklch(0.72 0.17 55);
   --sidebar: oklch(0.205 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.65 0.22 300);
+  --sidebar-primary: oklch(0.78 0.15 75);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.25 0.08 265);
+  --sidebar-accent: oklch(0.24 0.03 65);
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.25 0.08 265);
-  --sidebar-ring: oklch(0.65 0.22 300);
+  --sidebar-border: oklch(0.24 0.03 65);
+  --sidebar-ring: oklch(0.78 0.15 75);
 }
 
 @theme inline {
@@ -189,7 +165,6 @@
   }
 }
 
-/* GenLayer Brand Utilities 2025 - Clean, Modern Design */
 @layer utilities {
   /* Animations */
   .animate-fade-in {
@@ -222,21 +197,21 @@
     }
   }
 
-  /* Brand Gradient Utilities */
+  /* Brand Gradient Utilities (gold -> coral) */
   .gradient-purple-pink {
-    background: linear-gradient(135deg, oklch(0.65 0.22 300) 0%, oklch(0.78 0.18 330) 100%);
+    background: linear-gradient(135deg, oklch(0.78 0.15 75) 0%, oklch(0.68 0.19 35) 100%);
   }
 
   .gradient-purple-blue {
-    background: linear-gradient(135deg, oklch(0.65 0.22 300) 0%, oklch(0.55 0.37 265) 100%);
+    background: linear-gradient(135deg, oklch(0.78 0.15 75) 0%, oklch(0.62 0.09 200) 100%);
   }
 
   /* Glass Card - translucent + blurred so the ambient background glow reads through */
   .brand-card {
-    background: oklch(0.28 0.06 265 / 0.45);
+    background: oklch(0.26 0.03 65 / 0.45);
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
-    border: 1px solid oklch(0.55 0.10 280 / 0.18);
+    border: 1px solid oklch(0.60 0.08 70 / 0.18);
     border-radius: 0.75rem;
     box-shadow:
       0 8px 24px -8px rgb(0 0 0 / 0.35),
@@ -245,11 +220,11 @@
   }
 
   .brand-card-hover:hover {
-    border-color: oklch(0.65 0.22 300 / 0.55);
+    border-color: oklch(0.78 0.15 75 / 0.55);
     box-shadow:
       0 16px 32px -8px rgb(0 0 0 / 0.4),
       inset 0 1px 0 0 oklch(0.98 0 0 / 0.08),
-      0 0 0 1px oklch(0.65 0.22 300 / 0.15);
+      0 0 0 1px oklch(0.78 0.15 75 / 0.15);
     transform: translateY(-2px);
   }
 
@@ -261,10 +236,10 @@
     width: 2.75rem;
     height: 2.75rem;
     border-radius: 9999px;
-    background: linear-gradient(135deg, oklch(0.65 0.22 300 / 0.25) 0%, oklch(0.78 0.18 330 / 0.25) 100%);
-    border: 1px solid oklch(0.65 0.22 300 / 0.3);
-    color: oklch(0.85 0.15 310);
-    box-shadow: 0 0 20px -4px oklch(0.65 0.22 300 / 0.35);
+    background: linear-gradient(135deg, oklch(0.78 0.15 75 / 0.25) 0%, oklch(0.68 0.19 35 / 0.25) 100%);
+    border: 1px solid oklch(0.78 0.15 75 / 0.3);
+    color: oklch(0.85 0.13 70);
+    box-shadow: 0 0 20px -4px oklch(0.78 0.15 75 / 0.35);
   }
 
   /* Compact stat pill used in the navbar */
@@ -307,116 +282,14 @@
 
   /* Gradient text accent for headlines */
   .text-gradient {
-    background: linear-gradient(135deg, oklch(0.75 0.18 300) 0%, oklch(0.78 0.18 330) 100%);
+    background: linear-gradient(135deg, oklch(0.80 0.14 78) 0%, oklch(0.70 0.18 38) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
   }
-
-  /* Clean Navbar */
-  .brand-navbar {
-    background: oklch(0 0 0 / 0.8);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid oklch(0.25 0.08 265 / 0.4);
-  }
-
-  /* Brand Button Styles - Primary (Purple Gradient) */
-  .btn-primary {
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    background: linear-gradient(135deg, oklch(0.65 0.22 300) 0%, oklch(0.78 0.18 330) 100%);
-    color: oklch(0.98 0 0);
-    font-weight: 500;
-    border: none;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px 0 oklch(0.65 0.22 300 / 0.2);
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px 0 oklch(0.65 0.22 300 / 0.3);
-    filter: brightness(1.1);
-  }
-
-  .btn-primary:active:not(:disabled) {
-    transform: translateY(0);
-  }
-
-  /* Brand Button - Secondary (Navy) */
-  .btn-secondary {
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    background: oklch(0.25 0.08 265);
-    color: oklch(0.98 0 0);
-    font-weight: 500;
-    border: 1px solid oklch(0.30 0.10 265);
-    transition: all 0.2s ease;
-  }
-
-  .btn-secondary:hover:not(:disabled) {
-    background: oklch(0.28 0.10 265);
-    border-color: oklch(0.65 0.22 300 / 0.5);
-    transform: translateY(-1px);
-  }
-
-  /* Brand Button - Blue */
-  .btn-blue {
-    padding: 0.5rem 1rem;
-    border-radius: 0.5rem;
-    background: oklch(0.55 0.37 265);
-    color: oklch(0.98 0 0);
-    font-weight: 500;
-    border: none;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px 0 oklch(0.55 0.37 265 / 0.2);
-  }
-
-  .btn-blue:hover:not(:disabled) {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px 0 oklch(0.55 0.37 265 / 0.3);
-    filter: brightness(1.1);
-  }
-
-  /* Betting Panel Button States (Simplified) */
-  .bet-button-unselected {
-    background: oklch(0.25 0.08 265 / 0.5);
-    border: 1px solid oklch(0.30 0.10 265 / 0.4);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .bet-button-unselected-a:hover {
-    background: oklch(0.28 0.12 300 / 0.6);
-    border-color: oklch(0.65 0.22 300 / 0.6);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px 0 oklch(0.65 0.22 300 / 0.2);
-  }
-
-  .bet-button-unselected-b:hover {
-    background: oklch(0.28 0.15 265 / 0.6);
-    border-color: oklch(0.55 0.37 265 / 0.6);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px 0 oklch(0.55 0.37 265 / 0.2);
-  }
-
-  .bet-button-selected-a {
-    background: oklch(0.25 0.08 265 / 0.6);
-    color: oklch(0.98 0 0);
-    border: 1px solid oklch(0.65 0.22 300);
-    box-shadow: 0 0 0 2px oklch(0.65 0.22 300 / 0.2), 0 4px 12px 0 oklch(0.65 0.22 300 / 0.3);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  .bet-button-selected-b {
-    background: oklch(0.25 0.08 265 / 0.6);
-    color: oklch(0.98 0 0);
-    border: 1px solid oklch(0.55 0.37 265);
-    box-shadow: 0 0 0 2px oklch(0.55 0.37 265 / 0.2), 0 4px 12px 0 oklch(0.55 0.37 265 / 0.3);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
 }
 
-/* GenLayer Brand Background - Clean with Subtle Purple Gradient */
+/* Ambient background - warm gold/coral/teal glow instead of purple */
 @keyframes brandGradientShift {
   0%, 100% {
     background-position: 0% 50%;
@@ -432,10 +305,10 @@ html {
   scroll-behavior: smooth;
   background-color: #000000 !important;
   background-image:
-    radial-gradient(ellipse 80% 60% at 50% -20%, oklch(0.65 0.22 300 / 0.16) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 50% at 90% 15%, oklch(0.78 0.18 330 / 0.10) 0%, transparent 55%),
-    radial-gradient(ellipse 70% 50% at 10% 85%, oklch(0.55 0.37 265 / 0.10) 0%, transparent 50%),
-    linear-gradient(180deg, #000000 0%, #0a0a0f 50%, #000000 100%);
+    radial-gradient(ellipse 80% 60% at 50% -20%, oklch(0.78 0.15 75 / 0.16) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 50% at 90% 15%, oklch(0.68 0.19 35 / 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse 70% 50% at 10% 85%, oklch(0.62 0.09 200 / 0.08) 0%, transparent 50%),
+    linear-gradient(180deg, #000000 0%, #0a0908 50%, #000000 100%);
   background-attachment: fixed !important;
   background-size: 200% 200% !important;
   background-repeat: no-repeat !important;
@@ -475,107 +348,4 @@ main::before {
 main > * {
   position: relative;
   z-index: 1;
-}
-
-/* Reown AppKit Modal Customization */
-/* Hide "UX by Reown" branding */
-w3m-legal-footer,
-[data-testid="w3m-legal-footer"],
-wcm-legal-footer {
-  display: none !important;
-}
-
-/* Match project border radius consistently - 8px for cleaner look */
-w3m-modal,
-wcm-modal,
-w3m-router,
-wcm-router,
-w3m-modal-content,
-wcm-modal-content {
-  --w3m-border-radius-master: 8px !important;
-}
-
-/* Enhance modal glass-morphism to match app theme */
-w3m-modal,
-wcm-modal {
-  --w3m-background: oklch(0.24 0.01 0 / 0.95) !important;
-  --w3m-color-overlay: oklch(0 0 0 / 0.8) !important;
-}
-
-/* Override all border radius in AppKit components */
-w3m-modal *,
-wcm-modal *,
-w3m-button,
-wcm-button,
-w3m-wallet-button,
-wcm-wallet-button,
-w3m-card,
-wcm-card,
-w3m-input,
-wcm-input {
-  border-radius: 8px !important;
-}
-
-/* Smaller radius for internal elements */
-w3m-wallet-image,
-wcm-wallet-image,
-w3m-network-image,
-wcm-network-image {
-  border-radius: 6px !important;
-}
-
-/* Hide network compatibility warning */
-w3m-info-footer,
-wcm-info-footer,
-[data-testid="w3m-info-footer"],
-[data-testid="wcm-info-footer"] {
-  display: none !important;
-}
-
-/* Hide Send/Swap/Onramp features in wallet modal */
-/* Target legacy component names */
-w3m-button[data-variant="send"],
-wcm-button[data-variant="send"],
-w3m-send-button,
-wcm-send-button,
-[data-testid="w3m-send-button"],
-[data-testid="wcm-send-button"],
-w3m-swap-button,
-wcm-swap-button,
-w3m-onramp-button,
-wcm-onramp-button,
-w3m-wallet-features,
-wcm-wallet-features,
-w3m-account-token-send-button,
-wcm-account-token-send-button,
-w3m-wallet-send-button,
-wcm-wallet-send-button,
-/* Target new web components (wui-*) */
-wui-list-item[data-variant="send"],
-wui-list-item[data-type="send"],
-wui-list-button[data-variant="send"],
-wui-action-list-item[data-variant="send"],
-wui-list-item:has(wui-icon[name="send"]),
-wui-list-item:has(wui-icon[name="swap"]),
-wui-list-item:has(wui-icon[name="onramp"]),
-/* Position-based hiding - assuming Send is 2nd item after Fund wallet */
-w3m-account-view wui-list-item:nth-child(2),
-wcm-account-view wui-list-item:nth-child(2),
-wui-account-view wui-list-item:nth-child(2),
-/* Alternative selectors for various modal states */
-[data-view="Account"] wui-list-item:nth-child(2),
-[data-view="account"] wui-list-item:nth-child(2),
-/* Broad fallback - hide any list item with send/swap/onramp icons */
-wui-list-item[icon="send"],
-wui-list-item[icon="swap"],
-wui-list-item[icon="onramp"],
-wui-list-item[data-icon="send"],
-wui-list-item[data-icon="swap"],
-wui-list-item[data-icon="onramp"] {
-  display: none !important;
-  visibility: hidden !important;
-  height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
 }

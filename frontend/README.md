@@ -3,6 +3,11 @@
 Next.js frontend for [Salvage Arbiter](../README.md) — submit fund-recovery claims and
 watch GenLayer validators AI-adjudicate them on-chain.
 
+**Routes:** `/` is the marketing landing page; `/app` is the live dashboard (submit,
+view, and adjudicate claims). Own visual identity — a "Salvage Torch" gold/coral
+palette and a bespoke logomark (`components/Logo.tsx`) — not GenLayer's brand colors
+or logo, though the app runs on GenLayer and links back to it.
+
 ## Setup
 
 1. Install dependencies:
@@ -42,7 +47,8 @@ npm start
 
 - **Next.js 15** - React framework with App Router
 - **TypeScript** - Type safety
-- **Tailwind CSS v4** - Styling with custom glass-morphism theme
+- **Tailwind CSS v4** - Styling with a custom glass-morphism theme
+- **Fraunces + Plus Jakarta Sans** (`next/font/google`) - display serif + body sans
 - **genlayer-js** - GenLayer blockchain SDK
 - **TanStack Query (React Query)** - Data fetching and caching
 - **Radix UI** - Accessible component primitives

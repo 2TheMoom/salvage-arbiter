@@ -99,9 +99,6 @@ export function Navbar() {
                 <div className="hidden md:flex shrink-0">
                   <Logo size="md" />
                 </div>
-                <span className="text-lg md:text-xl font-bold ml-2 hidden sm:inline truncate">
-                  Salvage Arbiter
-                </span>
               </div>
 
               {/* Center: Stats */}
