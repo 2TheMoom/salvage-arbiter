@@ -7,9 +7,16 @@ drained wallet and points to public evidence (a signed message, a social post pr
 control of the address, etc). GenLayer validators independently fetch that evidence,
 reason over it with an LLM, and reach consensus on a verdict — approved, denied, or
 insufficient — via the equivalence principle. The result is an on-chain attestation
-that an off-chain recovery flow (e.g. [Salvage](https://github.com/)'s cross-chain
-rescue router) can require before releasing recovered funds to a claimant, instead of
-relying solely on manual/offline verification.
+that an off-chain recovery flow (e.g. Salvage's cross-chain rescue router) can require
+before releasing recovered funds to a claimant, instead of relying solely on
+manual/offline verification.
+
+## Live deployment
+Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
+- **Contract:** [`0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03`](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03)
+- Verified end-to-end with a real claim: a deliberately weak evidence URL was submitted,
+  and validators reached consensus (4/5 agreed, 1 timeout) to **deny** the claim with
+  100% confidence, correctly explaining that the evidence didn't reference the wallet.
 
 This started from GenLayer's official
 [project boilerplate](https://github.com/genlayerlabs/genlayer-project-boilerplate);
@@ -120,11 +127,29 @@ npm run dev
 
 The app will be available at http://localhost:3000/.
 
-## How the Football Bets Contract Works
+## How RecoveryArbiter Works
 
-1. **Creating Bets**: Users bet on a football match by providing the game date, teams, and predicted winner.
-2. **Resolving Bets**: After the match, the contract fetches results from BBC Sport, uses an LLM to extract the score, and validates via the equivalence principle.
-3. **Points**: Correct predictions earn points. Users can query their points or the leaderboard.
+1. **`submit_claim(drained_wallet, evidence_url, statement)`** — a claimant registers a
+   claim over an (external-chain) drained wallet address, pointing to public evidence
+   and explaining their case. Returns a `claim_id`; fails if that wallet already has a
+   pending/adjudicated claim from the same address.
+2. **`adjudicate(claim_id)`** — fetches `evidence_url` live, asks an LLM whether the
+   evidence plausibly proves ownership, and reaches multi-validator consensus on the
+   verdict via the leader/validator equivalence-principle pattern (validators agree on
+   the `verdict` field even if reasoning text differs). Sets `status` to `approved`,
+   `denied`, or `insufficient`, plus a `confidence` (0–100) and `reasoning`.
+3. **`get_claim` / `get_claims_by_address` / `get_all_claims`** — read back claims and
+   verdicts for an off-chain system to act on.
+
+### A CLI gotcha worth knowing
+`genlayer write/call --args` auto-coerces any bare `0x` + 40-hex-char argument into a
+GenVM `Address` calldata type — even for a parameter declared `str` in the contract
+(like `drained_wallet`, which references an *external*-chain address, not a native
+GenLayer one). Passing a raw address string that way fails at runtime with
+`AttributeError: 'int' object has no attribute 'encode'`. Work around it in manual CLI
+testing by prefixing the value (e.g. `"eth:0x000...deadbeef"`) so it doesn't match the
+address pattern; a real frontend using `genlayer-js` with explicit typed args doesn't
+have this ambiguity.
 
 ## Testing Strategy
 
