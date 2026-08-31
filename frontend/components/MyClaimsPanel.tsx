@@ -5,6 +5,7 @@ import { useClaimsByAddress, useRecoveryArbiterContract } from "@/lib/hooks/useR
 import { useWallet } from "@/lib/genlayer/wallet";
 import { Button } from "./ui/button";
 import type { Claim } from "@/lib/contracts/types";
+import { MAX_APPEALS } from "@/lib/contracts/types";
 
 const STATUS_ICON: Record<Claim["status"], React.ReactNode> = {
   approved: <ShieldCheck className="w-4 h-4 text-green-400" />,
@@ -119,7 +120,10 @@ export function MyClaimsPanel() {
               <p className="text-sm font-mono truncate" title={claim.drained_wallet}>
                 {claim.drained_wallet}
               </p>
-              <p className="text-xs text-muted-foreground capitalize">{claim.status}</p>
+              <p className="text-xs text-muted-foreground capitalize">
+                {claim.status}
+                {claim.appeal_count > 0 && ` · appealed ${claim.appeal_count}/${MAX_APPEALS}`}
+              </p>
             </div>
             {claim.status !== "pending" && (
               <div className="flex-shrink-0 text-right">

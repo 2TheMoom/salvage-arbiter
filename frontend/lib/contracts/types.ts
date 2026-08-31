@@ -4,6 +4,8 @@
 
 export type ClaimStatus = "pending" | "approved" | "denied" | "insufficient";
 
+export const MAX_APPEALS = 3;
+
 export interface Claim {
   id: string;
   claimant: string;
@@ -13,6 +15,7 @@ export interface Claim {
   status: ClaimStatus;
   verdict_confidence: number;
   verdict_reasoning: string;
+  appeal_count: number;
 }
 
 export interface TransactionReceipt {

@@ -1,13 +1,16 @@
 "use client";
 
-import { Loader2, ShieldCheck, ShieldX, ShieldQuestion, Clock, AlertCircle } from "lucide-react";
+import { useState } from "react";
+import { Loader2, ShieldCheck, ShieldX, ShieldQuestion, Clock, AlertCircle, Scale } from "lucide-react";
 import { useClaims, useAdjudicate, useRecoveryArbiterContract } from "@/lib/hooks/useRecoveryArbiter";
 import { useWallet } from "@/lib/genlayer/wallet";
 import { error } from "@/lib/utils/toast";
 import { AddressDisplay } from "./AddressDisplay";
+import { AppealModal } from "./AppealModal";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import type { Claim } from "@/lib/contracts/types";
+import { MAX_APPEALS } from "@/lib/contracts/types";
 
 export function ClaimsTable() {
   const contract = useRecoveryArbiterContract();
@@ -153,8 +156,15 @@ function ConfidenceBar({ value, status }: { value: number; status: Claim["status
 }
 
 function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjudicate, isAdjudicating }: ClaimRowProps) {
+  const [isAppealOpen, setIsAppealOpen] = useState(false);
   const isClaimant = currentAddress?.toLowerCase() === claim.claimant?.toLowerCase();
   const canAdjudicate = isConnected && currentAddress && claim.status === "pending" && !isWalletLoading;
+  const canAppeal =
+    isConnected &&
+    isClaimant &&
+    !isWalletLoading &&
+    (claim.status === "denied" || claim.status === "insufficient") &&
+    claim.appeal_count < MAX_APPEALS;
 
   return (
     <div className="brand-card brand-card-hover p-4 sm:p-5 animate-fade-in">
@@ -200,6 +210,18 @@ function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjud
             )}
           </Button>
         )}
+
+        {canAppeal && (
+          <Button
+            onClick={() => setIsAppealOpen(true)}
+            size="sm"
+            variant="outline"
+            className="shrink-0"
+          >
+            <Scale className="w-3.5 h-3.5 mr-1" />
+            Appeal
+          </Button>
+        )}
       </div>
 
       {claim.status !== "pending" && (
@@ -208,6 +230,11 @@ function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjud
           <p className="text-xs text-muted-foreground flex-1" title={claim.verdict_reasoning}>
             {claim.verdict_reasoning}
           </p>
+          {claim.appeal_count > 0 && (
+            <span className="text-[10px] text-muted-foreground shrink-0 whitespace-nowrap">
+              Appealed {claim.appeal_count}/{MAX_APPEALS}
+            </span>
+          )}
         </div>
       )}
 
@@ -215,6 +242,10 @@ function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjud
         <div className="mt-3 pt-3 border-t border-white/5">
           <span className="text-xs text-muted-foreground">Awaiting adjudication</span>
         </div>
+      )}
+
+      {canAppeal && (
+        <AppealModal claim={claim} open={isAppealOpen} onOpenChange={setIsAppealOpen} />
       )}
     </div>
   );

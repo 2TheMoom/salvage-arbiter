@@ -68,5 +68,9 @@ GenLayer network (Bradbury testnet by default) automatically.
 - **Adjudicate**: Anyone connected can trigger AI adjudication on a pending claim —
   validators fetch the evidence, reason over it with an LLM, and reach consensus via
   GenLayer's equivalence principle
-- **My Claims**: Track the status and confidence of claims you've personally submitted
+- **Appeal**: The original claimant can appeal a denied/insufficient claim with new
+  evidence (up to 3 times), which resets it to pending and re-triggers adjudication in
+  one action
+- **Profile** (`/app/profile`): wallet details and your full claim history, reachable
+  from the account icon next to the connected-wallet pill
 - **Glass-morphism UI**: Dark theme with OKLCH colors, backdrop blur, and animations

@@ -11,12 +11,28 @@ that an off-chain recovery flow (e.g. Salvage's cross-chain rescue router) can r
 before releasing recovered funds to a claimant, instead of relying solely on
 manual/offline verification.
 
+A denied or insufficient verdict isn't final: the claimant can appeal with new evidence
+(`submit_appeal`), which resets the claim to `pending` and clears the old verdict so
+`adjudicate` reconsiders it from scratch. Appeals are capped at 3 per claim and
+restricted to the original claimant, so the AI's non-determinism can't be gamed by
+spam-retrying an unchanged submission.
+
 ## Live deployment
 Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **Contract:** [`0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03`](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03)
-- Verified end-to-end with a real claim: a deliberately weak evidence URL was submitted,
-  and validators reached consensus (4/5 agreed, 1 timeout) to **deny** the claim with
-  100% confidence, correctly explaining that the evidence didn't reference the wallet.
+- **Contract:** [`0xdc1801D971483eCf4Afd582c19a176419F61Bbcc`](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc)
+- Verified end-to-end with a real claim: a deliberately weak evidence URL was submitted
+  and denied, then appealed with different (still weak, for testing) evidence —
+  `submit_appeal` correctly reset the claim to `pending`, cleared the prior verdict, and
+  incremented `appeal_count` to 1, confirmed by reading the claim back on-chain.
+  Re-adjudication after the appeal was still pending finalization as of this writing due
+  to validator-side LLM-call timeouts on the testnet (visible in transaction traces
+  computing the correct verdict but failing to reach quorum) — a live infrastructure
+  condition at the time, not a contract issue; `adjudicate` itself was independently
+  verified working on both this deployment and the original one.
+- Previous deployment (pre-appeal-path):
+  [`0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03`](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03) —
+  verified end-to-end with a denied claim (4/5 validators agreed, 1 timeout, 100%
+  confidence).
 
 This started from GenLayer's official
 [project boilerplate](https://github.com/genlayerlabs/genlayer-project-boilerplate);
@@ -139,7 +155,12 @@ The app will be available at http://localhost:3000/.
    verdict via the leader/validator equivalence-principle pattern (validators agree on
    the `verdict` field even if reasoning text differs). Sets `status` to `approved`,
    `denied`, or `insufficient`, plus a `confidence` (0–100) and `reasoning`.
-3. **`get_claim` / `get_claims_by_address` / `get_all_claims`** — read back claims and
+3. **`submit_appeal(claim_id, evidence_url, statement)`** — the original claimant only,
+   and only on a `denied`/`insufficient` claim, can replace the evidence/statement and
+   reset `status` back to `pending` (clearing the old verdict) so `adjudicate` can
+   reconsider. Capped at `MAX_APPEALS = 3` per claim to stop someone from spam-retrying
+   an unchanged submission hoping the LLM's non-determinism eventually flips the result.
+4. **`get_claim` / `get_claims_by_address` / `get_all_claims`** — read back claims and
    verdicts for an off-chain system to act on.
 
 ### A CLI gotcha worth knowing

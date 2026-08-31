@@ -190,3 +190,71 @@ export function useAdjudicate() {
     adjudicateAsync: mutation.mutateAsync,
   };
 }
+
+/**
+ * Hook to appeal a denied/insufficient claim with new evidence. Chains a
+ * submit_appeal transaction with a fresh adjudicate transaction, so from
+ * the UI's perspective this is one action with one loading state.
+ */
+export function useSubmitAppeal() {
+  const contract = useRecoveryArbiterContract();
+  const { address } = useWallet();
+  const queryClient = useQueryClient();
+  const [isAppealing, setIsAppealing] = useState(false);
+  const [appealingClaimId, setAppealingClaimId] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: async ({
+      claimId,
+      evidenceUrl,
+      statement,
+      feePresetLevel,
+    }: {
+      claimId: string;
+      evidenceUrl: string;
+      statement: string;
+      feePresetLevel?: FeePresetLevel;
+    }) => {
+      if (!contract) {
+        throw new Error("Contract not configured. Please set NEXT_PUBLIC_CONTRACT_ADDRESS in your .env file.");
+      }
+      if (!address) {
+        throw new Error("Wallet not connected. Please connect your wallet to appeal a claim.");
+      }
+      setIsAppealing(true);
+      setAppealingClaimId(claimId);
+      const feePreset = await contract.estimateSubmitAppealFees(
+        claimId,
+        evidenceUrl,
+        statement,
+        feePresetLevel ?? "standard"
+      );
+      return contract.submitAppeal(claimId, evidenceUrl, statement, feePreset);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["claims"] });
+      queryClient.invalidateQueries({ queryKey: ["claimsByAddress"] });
+      setIsAppealing(false);
+      setAppealingClaimId(null);
+      success("Appeal submitted and re-adjudicated!", {
+        description: "Validators reached a new verdict on this claim.",
+      });
+    },
+    onError: (err: any) => {
+      console.error("Error submitting appeal:", err);
+      setIsAppealing(false);
+      setAppealingClaimId(null);
+      error("Failed to submit appeal", {
+        description: err?.message || "Please try again.",
+      });
+    },
+  });
+
+  return {
+    ...mutation,
+    isAppealing,
+    appealingClaimId,
+    submitAppeal: mutation.mutate,
+    submitAppealAsync: mutation.mutateAsync,
+  };
+}

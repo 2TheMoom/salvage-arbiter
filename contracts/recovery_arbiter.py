@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from genlayer import *
 
+MAX_APPEALS = 3
+
 
 @allow_storage
 @dataclass
@@ -15,6 +17,7 @@ class Claim:
     status: str  # "pending" | "approved" | "denied" | "insufficient"
     verdict_confidence: u256
     verdict_reasoning: str
+    appeal_count: u256
 
 
 class RecoveryArbiter(gl.Contract):
@@ -55,10 +58,37 @@ class RecoveryArbiter(gl.Contract):
             status="pending",
             verdict_confidence=0,
             verdict_reasoning="",
+            appeal_count=0,
         )
         self.claims[claim_id] = claim
         self.claimant_claims.get_or_insert_default(sender).append(claim_id)
         return claim_id
+
+    @gl.public.write
+    def submit_appeal(self, claim_id: str, evidence_url: str, statement: str) -> None:
+        if claim_id not in self.claims:
+            raise gl.vm.UserError("Claim not found")
+
+        claim = self.claims[claim_id]
+
+        if gl.message.sender_address != claim.claimant:
+            raise gl.vm.UserError("Only the claimant can appeal this claim")
+
+        if claim.status == "pending":
+            raise gl.vm.UserError("Claim is still awaiting its first adjudication")
+
+        if claim.status == "approved":
+            raise gl.vm.UserError("Approved claims cannot be appealed")
+
+        if claim.appeal_count >= MAX_APPEALS:
+            raise gl.vm.UserError(f"Maximum of {MAX_APPEALS} appeals reached")
+
+        claim.evidence_url = evidence_url
+        claim.statement = statement
+        claim.status = "pending"
+        claim.verdict_confidence = 0
+        claim.verdict_reasoning = ""
+        claim.appeal_count += 1
 
     def _judge(self, drained_wallet: str, evidence_url: str, statement: str) -> dict:
         def leader_fn() -> dict:

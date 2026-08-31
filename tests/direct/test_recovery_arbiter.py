@@ -33,6 +33,7 @@ def test_submit_claim(direct_vm, direct_deploy, direct_alice):
     assert claim.status == "pending"
     assert claim.verdict_confidence == 0
     assert claim.verdict_reasoning == ""
+    assert claim.appeal_count == 0
 
 
 def test_submit_duplicate_claim_fails(direct_vm, direct_deploy, direct_alice):
@@ -183,3 +184,117 @@ def test_get_claims_by_address(direct_vm, direct_deploy, direct_alice, direct_bo
 def test_get_all_claims_empty(direct_deploy):
     contract = direct_deploy(CONTRACT)
     assert contract.get_all_claims() == {}
+
+
+def test_appeal_denied_claim_resets_to_pending(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/weak", "trust me"
+    )
+    _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")
+    contract.adjudicate(claim_id)
+    assert contract.get_claim(claim_id).status == "denied"
+
+    direct_vm.clear_mocks()
+    contract.submit_appeal(
+        claim_id, "https://evidence.example/stronger", "here is a signed message"
+    )
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "pending"
+    assert claim.evidence_url == "https://evidence.example/stronger"
+    assert claim.statement == "here is a signed message"
+    assert claim.verdict_confidence == 0
+    assert claim.verdict_reasoning == ""
+    assert claim.appeal_count == 1
+
+
+def test_appeal_then_readjudicate_to_approved(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/weak", "trust me"
+    )
+    _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")
+    contract.adjudicate(claim_id)
+
+    direct_vm.clear_mocks()
+    contract.submit_appeal(
+        claim_id, "https://evidence.example/stronger", "here is a signed message"
+    )
+    _setup_verdict_mock(direct_vm, "signed message matches", "approve", 95, "signature verified")
+    contract.adjudicate(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "approved"
+    assert claim.verdict_confidence == 95
+    assert claim.appeal_count == 1
+
+
+def test_appeal_by_non_claimant_fails(direct_vm, direct_deploy, direct_alice, direct_bob):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    claim_id = contract.submit_claim(WALLET, "https://evidence.example/weak", "trust me")
+    _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")
+    contract.adjudicate(claim_id)
+
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert("Only the claimant can appeal this claim"):
+        contract.submit_appeal(claim_id, "https://evidence.example/stronger", "statement")
+
+
+def test_appeal_approved_claim_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    claim_id = contract.submit_claim(WALLET, "https://evidence.example/proof", "statement")
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    with direct_vm.expect_revert("Approved claims cannot be appealed"):
+        contract.submit_appeal(claim_id, "https://evidence.example/more", "more evidence")
+
+
+def test_appeal_pending_claim_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    claim_id = contract.submit_claim(WALLET, "https://evidence.example/proof", "statement")
+
+    with direct_vm.expect_revert("Claim is still awaiting its first adjudication"):
+        contract.submit_appeal(claim_id, "https://evidence.example/more", "more evidence")
+
+
+def test_appeal_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    with direct_vm.expect_revert("Claim not found"):
+        contract.submit_appeal("nonexistent", "https://evidence.example/more", "statement")
+
+
+def test_appeal_max_limit_reached_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    claim_id = contract.submit_claim(WALLET, "https://evidence.example/weak", "trust me")
+
+    for i in range(3):
+        _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")
+        contract.adjudicate(claim_id)
+        contract.submit_appeal(
+            claim_id, f"https://evidence.example/attempt{i}", "still trust me"
+        )
+        direct_vm.clear_mocks()
+
+    assert contract.get_claim(claim_id).appeal_count == 3
+
+    _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")
+    contract.adjudicate(claim_id)
+
+    with direct_vm.expect_revert("Maximum of 3 appeals reached"):
+        contract.submit_appeal(claim_id, "https://evidence.example/one-more", "please")

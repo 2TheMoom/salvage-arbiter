@@ -29,6 +29,7 @@ function decodeClaim(raw: any): Claim {
     status: (obj.status ?? "pending") as Claim["status"],
     verdict_confidence: Number(obj.verdict_confidence ?? 0),
     verdict_reasoning: String(obj.verdict_reasoning ?? ""),
+    appeal_count: Number(obj.appeal_count ?? 0),
   };
 }
 
@@ -103,6 +104,23 @@ class RecoveryArbiter {
         address: this.contractAddress,
         functionName: "adjudicate",
         args: [claimId],
+      },
+      level,
+    );
+  }
+
+  async estimateSubmitAppealFees(
+    claimId: string,
+    evidenceUrl: string,
+    statement: string,
+    level: FeePresetLevel = "standard"
+  ): Promise<FeePresetEstimate | undefined> {
+    return estimateWriteFeePreset(
+      this.client,
+      {
+        address: this.contractAddress,
+        functionName: "submit_appeal",
+        args: [claimId, evidenceUrl, statement],
       },
       level,
     );
@@ -239,6 +257,43 @@ class RecoveryArbiter {
     } catch (error) {
       console.error("Error adjudicating claim:", error);
       throw new Error("Failed to adjudicate claim");
+    }
+  }
+
+  /**
+   * Appeal a denied/insufficient claim with new evidence, then immediately
+   * re-trigger adjudication so the claimant only has to take one action.
+   * These are two separate on-chain transactions (submit_appeal resets the
+   * claim to "pending", adjudicate re-runs the actual AI consensus), chained
+   * here for a single-click UX.
+   */
+  async submitAppeal(
+    claimId: string,
+    evidenceUrl: string,
+    statement: string,
+    feePreset?: FeePresetEstimate
+  ): Promise<string> {
+    try {
+      const fees = feePresetToTransactionFees(feePreset);
+      const appealTxHash = await this.client.writeContract({
+        address: this.contractAddress,
+        functionName: "submit_appeal",
+        args: [claimId, evidenceUrl, statement],
+        value: BigInt(0),
+        ...(fees ? { fees } : {}),
+      });
+
+      await this.client.waitForTransactionReceipt({
+        hash: appealTxHash,
+        status: "ACCEPTED" as any,
+        retries: 24,
+        interval: 5000,
+      });
+
+      return this.adjudicate(claimId);
+    } catch (error) {
+      console.error("Error submitting appeal:", error);
+      throw new Error("Failed to submit appeal");
     }
   }
 }
