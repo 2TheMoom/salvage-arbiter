@@ -3,6 +3,7 @@
 import { ShieldCheck, ShieldX, ShieldQuestion, Clock, Loader2, AlertCircle, User } from "lucide-react";
 import { useClaimsByAddress, useRecoveryArbiterContract } from "@/lib/hooks/useRecoveryArbiter";
 import { useWallet } from "@/lib/genlayer/wallet";
+import { Button } from "./ui/button";
 import type { Claim } from "@/lib/contracts/types";
 
 const STATUS_ICON: Record<Claim["status"], React.ReactNode> = {
@@ -14,7 +15,7 @@ const STATUS_ICON: Record<Claim["status"], React.ReactNode> = {
 
 export function MyClaimsPanel() {
   const contract = useRecoveryArbiterContract();
-  const { address, isConnected } = useWallet();
+  const { address, isConnected, isLoading: isWalletLoading, connectWallet } = useWallet();
   const { data: claims, isLoading, isError } = useClaimsByAddress(address);
 
   if (!isConnected) {
@@ -24,8 +25,19 @@ export function MyClaimsPanel() {
           <User className="w-5 h-5 text-accent" />
           My Claims
         </h2>
-        <div className="text-center py-8">
+        <div className="text-center py-8 space-y-4">
+          <User className="w-12 h-12 mx-auto text-muted-foreground opacity-30" />
           <p className="text-sm text-muted-foreground">Connect your wallet to see your claims</p>
+          <Button
+            variant="gradient"
+            size="sm"
+            onClick={() => {
+              connectWallet().catch(() => {});
+            }}
+            disabled={isWalletLoading}
+          >
+            Connect Wallet
+          </Button>
         </div>
       </div>
     );

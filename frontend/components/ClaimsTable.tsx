@@ -76,43 +76,18 @@ export function ClaimsTable() {
   }
 
   return (
-    <div className="brand-card p-6 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-white/10">
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Drained Wallet
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Claimant
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Status
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Verdict
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {claims.map((claim) => (
-              <ClaimRow
-                key={claim.id}
-                claim={claim}
-                currentAddress={address}
-                isConnected={isConnected}
-                isWalletLoading={isWalletLoading}
-                onAdjudicate={handleAdjudicate}
-                isAdjudicating={isAdjudicating && adjudicatingClaimId === claim.id}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
+    <div className="space-y-3">
+      {claims.map((claim) => (
+        <ClaimRow
+          key={claim.id}
+          claim={claim}
+          currentAddress={address}
+          isConnected={isConnected}
+          isWalletLoading={isWalletLoading}
+          onAdjudicate={handleAdjudicate}
+          isAdjudicating={isAdjudicating && adjudicatingClaimId === claim.id}
+        />
+      ))}
     </div>
   );
 }
@@ -130,21 +105,21 @@ function StatusBadge({ status }: { status: Claim["status"] }) {
   switch (status) {
     case "approved":
       return (
-        <Badge className="bg-green-500/20 text-green-400 border-green-500/30">
+        <Badge className="bg-green-500/15 text-green-400 border-green-500/30">
           <ShieldCheck className="w-3 h-3 mr-1" />
           Approved
         </Badge>
       );
     case "denied":
       return (
-        <Badge className="bg-red-500/20 text-red-400 border-red-500/30">
+        <Badge className="bg-red-500/15 text-red-400 border-red-500/30">
           <ShieldX className="w-3 h-3 mr-1" />
           Denied
         </Badge>
       );
     case "insufficient":
       return (
-        <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">
+        <Badge className="bg-orange-500/15 text-orange-400 border-orange-500/30">
           <ShieldQuestion className="w-3 h-3 mr-1" />
           Insufficient
         </Badge>
@@ -159,51 +134,61 @@ function StatusBadge({ status }: { status: Claim["status"] }) {
   }
 }
 
+const STATUS_BAR_COLOR: Record<Claim["status"], string> = {
+  approved: "bg-green-400",
+  denied: "bg-red-400",
+  insufficient: "bg-orange-400",
+  pending: "bg-yellow-400",
+};
+
+function ConfidenceBar({ value, status }: { value: number; status: Claim["status"] }) {
+  return (
+    <div className="flex items-center gap-2 w-full max-w-[140px]">
+      <div className="h-1.5 flex-1 rounded-full bg-white/10 overflow-hidden">
+        <div className={`h-full rounded-full ${STATUS_BAR_COLOR[status]}`} style={{ width: `${value}%` }} />
+      </div>
+      <span className="text-xs font-semibold text-foreground shrink-0">{value}%</span>
+    </div>
+  );
+}
+
 function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjudicate, isAdjudicating }: ClaimRowProps) {
   const isClaimant = currentAddress?.toLowerCase() === claim.claimant?.toLowerCase();
   const canAdjudicate = isConnected && currentAddress && claim.status === "pending" && !isWalletLoading;
 
   return (
-    <tr className="group hover:bg-white/5 transition-colors animate-fade-in">
-      <td className="px-4 py-4">
-        <span className="text-sm font-mono" title={claim.drained_wallet}>
-          {claim.drained_wallet.length > 24
-            ? `${claim.drained_wallet.slice(0, 12)}...${claim.drained_wallet.slice(-8)}`
-            : claim.drained_wallet}
-        </span>
-      </td>
-      <td className="px-4 py-4">
-        <div className="flex items-center gap-2">
-          <AddressDisplay address={claim.claimant} maxLength={10} showCopy={true} />
-          {isClaimant && (
-            <Badge variant="secondary" className="text-xs">
-              You
-            </Badge>
-          )}
-        </div>
-      </td>
-      <td className="px-4 py-4">
-        <StatusBadge status={claim.status} />
-      </td>
-      <td className="px-4 py-4 max-w-xs">
-        {claim.status === "pending" ? (
-          <span className="text-xs text-muted-foreground">Awaiting adjudication</span>
-        ) : (
-          <div className="space-y-1">
-            <span className="text-xs font-semibold text-accent">{claim.verdict_confidence}% confidence</span>
-            <p className="text-xs text-muted-foreground line-clamp-2" title={claim.verdict_reasoning}>
-              {claim.verdict_reasoning}
-            </p>
+    <div className="brand-card brand-card-hover p-4 sm:p-5 animate-fade-in">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className="text-sm font-mono font-semibold text-foreground break-all"
+              title={claim.drained_wallet}
+            >
+              {claim.drained_wallet.length > 32
+                ? `${claim.drained_wallet.slice(0, 16)}...${claim.drained_wallet.slice(-8)}`
+                : claim.drained_wallet}
+            </span>
+            <StatusBadge status={claim.status} />
           </div>
-        )}
-      </td>
-      <td className="px-4 py-4">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Claimant:</span>
+            <AddressDisplay address={claim.claimant} maxLength={10} showCopy={true} />
+            {isClaimant && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                You
+              </Badge>
+            )}
+          </div>
+        </div>
+
         {canAdjudicate && (
           <Button
             onClick={() => onAdjudicate(claim.id)}
             disabled={isAdjudicating}
             size="sm"
             variant="gradient"
+            className="shrink-0"
           >
             {isAdjudicating ? (
               <>
@@ -215,7 +200,22 @@ function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjud
             )}
           </Button>
         )}
-      </td>
-    </tr>
+      </div>
+
+      {claim.status !== "pending" && (
+        <div className="mt-3 pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-start gap-3">
+          <ConfidenceBar value={claim.verdict_confidence} status={claim.status} />
+          <p className="text-xs text-muted-foreground flex-1" title={claim.verdict_reasoning}>
+            {claim.verdict_reasoning}
+          </p>
+        </div>
+      )}
+
+      {claim.status === "pending" && !canAdjudicate && (
+        <div className="mt-3 pt-3 border-t border-white/5">
+          <span className="text-xs text-muted-foreground">Awaiting adjudication</span>
+        </div>
+      )}
+    </div>
   );
 }

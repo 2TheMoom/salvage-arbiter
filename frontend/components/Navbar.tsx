@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { FileCheck2, ShieldCheck } from "lucide-react";
 import { AccountPanel } from "./AccountPanel";
 import { SubmitClaimModal } from "./SubmitClaimModal";
 import { useClaims } from "@/lib/hooks/useRecoveryArbiter";
@@ -85,22 +86,35 @@ export function Navbar() {
               style={{ height: `${headerHeight}px` }}
             >
               {/* Left: Logo */}
-              <div className="flex items-center gap-3">
-                {/* Show mark only on mobile, full logo on desktop */}
-                <LogoMark size="md" className="flex md:hidden" />
-                <Logo size="md" className="hidden md:flex" />
-                <span className="text-lg md:text-xl font-bold ml-2">Salvage Arbiter</span>
+              <div className="flex items-center gap-3 min-w-0">
+                {/* Show mark only on mobile, full logo on desktop.
+                    Wrapped in plain divs rather than passing "hidden"/"flex"
+                    into Logo's own className: its internal wrapper hardcodes
+                    "inline-flex", which can win the display-property cascade
+                    over an externally-passed "hidden" depending on Tailwind's
+                    generated class order, making both logos render at once. */}
+                <div className="flex md:hidden shrink-0">
+                  <LogoMark size="md" />
+                </div>
+                <div className="hidden md:flex shrink-0">
+                  <Logo size="md" />
+                </div>
+                <span className="text-lg md:text-xl font-bold ml-2 hidden sm:inline truncate">
+                  Salvage Arbiter
+                </span>
               </div>
 
               {/* Center: Stats */}
-              <div className="hidden md:flex items-center gap-6 text-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Total Claims:</span>
-                  <span className="text-foreground font-bold text-accent">{totalClaims}</span>
+              <div className="hidden md:flex items-center gap-2">
+                <div className="stat-pill">
+                  <FileCheck2 className="w-3.5 h-3.5 text-accent" />
+                  <span className="font-semibold text-foreground">{totalClaims}</span>
+                  Claims
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">Adjudicated:</span>
-                  <span className="text-foreground font-bold text-accent">{adjudicatedClaims}</span>
+                <div className="stat-pill">
+                  <ShieldCheck className="w-3.5 h-3.5 text-accent" />
+                  <span className="font-semibold text-foreground">{adjudicatedClaims}</span>
+                  Adjudicated
                 </div>
               </div>
 

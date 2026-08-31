@@ -105,8 +105,8 @@ export function SubmitClaimModal() {
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="gradient" disabled={!isConnected || !address || isLoading}>
-          <Plus className="w-4 h-4 mr-2" />
-          Submit Claim
+          <Plus className="w-4 h-4 sm:mr-2" />
+          <span className="hidden sm:inline">Submit Claim</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="brand-card border-2 sm:max-w-[500px]">
