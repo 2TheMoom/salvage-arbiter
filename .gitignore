@@ -21,6 +21,7 @@ __pycache__/
 /frontend/next-env.d.ts
 /frontend/bun.lock
 /frontend/package-lock.json
+/frontend/tsconfig.tsbuildinfo
 *.compiled.js
 package-lock.json
 

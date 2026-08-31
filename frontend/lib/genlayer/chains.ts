@@ -1,0 +1,21 @@
+import { localnet, studionet, testnetBradbury } from "genlayer-js/chains";
+
+// Note: genlayer-js's testnetAsimov also has id 4221 (same as testnetBradbury),
+// so chain ID alone can't disambiguate it. Bradbury is the current recommended
+// testnet and where RecoveryArbiter is deployed, so it's what 4221 resolves to.
+const CHAINS_BY_ID: Record<number, typeof studionet> = {
+  61999: studionet,
+  4221: testnetBradbury,
+};
+
+/**
+ * Resolve the genlayer-js chain object to use, based on
+ * NEXT_PUBLIC_GENLAYER_CHAIN_ID. Defaults to Bradbury testnet, where
+ * RecoveryArbiter is actually deployed.
+ */
+export function getGenLayerChain() {
+  const chainId = parseInt(process.env.NEXT_PUBLIC_GENLAYER_CHAIN_ID || "4221");
+  return CHAINS_BY_ID[chainId] ?? testnetBradbury;
+}
+
+export { localnet, studionet, testnetBradbury };

@@ -29,8 +29,9 @@ the original `football_bets.py` sample contract and its tests are kept around un
 - `tests/direct/test_recovery_arbiter.py` — direct-mode tests (in-memory, mocked web/LLM)
 - **Contract linting** — static analysis to catch common contract issues before deployment
 - **CI pipeline** — GitHub Actions workflow for linting and direct tests
-- A Next.js 15 frontend scaffold (TypeScript, TanStack Query, Radix UI) — not yet wired
-  to RecoveryArbiter, still calls the sample football-bets contract
+- A Next.js 15 frontend (TypeScript, TanStack Query, Radix UI) wired to
+  RecoveryArbiter — submit claims, view/adjudicate them, and track your own claim
+  history (see `frontend/README.md`)
 - Configuration file template and deployment scripts
 
 ## Requirements

@@ -1,7 +1,7 @@
 {
-  "name": "genlayer-football-betting",
+  "name": "salvage-arbiter-frontend",
   "version": "1.0.0",
-  "description": "GenLayer Football Betting - AI-powered prediction betting on GenLayer blockchain.",
+  "description": "Salvage Arbiter - AI-adjudicated fund-recovery claims on GenLayer.",
   "main": "index.js",
   "scripts": {
     "dev": "next dev",

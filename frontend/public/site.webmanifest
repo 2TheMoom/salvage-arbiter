@@ -1,7 +1,7 @@
 {
-  "name": "GenLayer Football Market",
-  "short_name": "GenLayer Market",
-  "description": "AI-powered football match predictions on GenLayer blockchain",
+  "name": "Salvage Arbiter",
+  "short_name": "Salvage Arbiter",
+  "description": "AI-adjudicated fund-recovery claims on GenLayer",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#000000",

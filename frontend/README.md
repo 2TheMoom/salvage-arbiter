@@ -1,17 +1,12 @@
-# GenLayer Football Market
+# Salvage Arbiter Frontend
 
-Next.js frontend for GenLayer Football Market - AI-powered football match predictions on GenLayer blockchain.
+Next.js frontend for [Salvage Arbiter](../README.md) — submit fund-recovery claims and
+watch GenLayer validators AI-adjudicate them on-chain.
 
 ## Setup
 
 1. Install dependencies:
 
-**Using bun:**
-```bash
-bun install
-```
-
-**Using npm:**
 ```bash
 npm install
 ```
@@ -21,18 +16,15 @@ npm install
 cp .env.example .env
 ```
 
-3. Configure environment variables:
-   - `NEXT_PUBLIC_CONTRACT_ADDRESS` - GenLayer Football Betting contract address
-   - `NEXT_PUBLIC_STUDIO_URL` - GenLayer Studio URL (default: https://studio.genlayer.com/api)
+3. Configure environment variables (see `.env.example`):
+   - `NEXT_PUBLIC_CONTRACT_ADDRESS` — RecoveryArbiter contract address (defaults to the
+     live Bradbury testnet deployment)
+   - `NEXT_PUBLIC_GENLAYER_CHAIN_ID` — 4221 for Bradbury testnet, 61999 for Studio
+   - `NEXT_PUBLIC_GENLAYER_RPC_URL` — optional override; leave unset to use the selected
+     chain's own built-in RPC
 
 ## Development
 
-**Using bun:**
-```bash
-bun dev
-```
-
-**Using npm:**
 ```bash
 npm run dev
 ```
@@ -41,13 +33,6 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Build
 
-**Using bun:**
-```bash
-bun run build
-bun start
-```
-
-**Using npm:**
 ```bash
 npm run build
 npm start
@@ -63,22 +48,19 @@ npm start
 - **Radix UI** - Accessible component primitives
 - **shadcn/ui** - Pre-built UI components
 
-## Wallet Management
+## Wallet
 
-The app uses GenLayer's account system:
-- **Create Account**: Generate a new private key
-- **Import Account**: Import existing private key
-- **Export Account**: Export your private key (secured)
-- **Disconnect**: Clear stored account data
-
-Accounts are stored in browser's localStorage for development convenience.
+Wallet connection is via **MetaMask** (see `lib/genlayer/WalletProvider.tsx`), not a
+local private-key manager. Connecting prompts MetaMask to add/switch to the configured
+GenLayer network (Bradbury testnet by default) automatically.
 
 ## Features
 
-- **Create Bets**: Create football match predictions with team names, game date, and predicted winner (Team 1, Team 2, or Draw)
-- **View Bets**: Real-time bet table with match details, predictions, status, and owners
-- **Resolve Bets**: Bet owners can resolve matches using GenLayer's AI to verify actual results
-- **Leaderboard**: Track top players by points earned from correct predictions
-- **Player Stats**: View your points and ranking in the community
-- **Glass-morphism UI**: Premium dark theme with OKLCH colors, backdrop blur effects, and smooth animations
-- **Real-time Updates**: Automatic data fetching with 3-second polling intervals via TanStack Query
+- **Submit Claims**: Assert ownership of a drained wallet, link public evidence, and
+  explain your case
+- **View Claims**: Real-time table of every claim with status, claimant, and verdict
+- **Adjudicate**: Anyone connected can trigger AI adjudication on a pending claim —
+  validators fetch the evidence, reason over it with an LLM, and reach consensus via
+  GenLayer's equivalence principle
+- **My Claims**: Track the status and confidence of claims you've personally submitted
+- **Glass-morphism UI**: Dark theme with OKLCH colors, backdrop blur, and animations
