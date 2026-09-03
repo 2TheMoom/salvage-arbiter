@@ -26,6 +26,7 @@ function decodeClaim(raw: any): Claim {
     drained_wallet: String(obj.drained_wallet ?? ""),
     evidence_url: String(obj.evidence_url ?? ""),
     statement: String(obj.statement ?? ""),
+    signature: String(obj.signature ?? ""),
     status: (obj.status ?? "pending") as Claim["status"],
     verdict_confidence: Number(obj.verdict_confidence ?? 0),
     verdict_reasoning: String(obj.verdict_reasoning ?? ""),
@@ -81,6 +82,7 @@ class RecoveryArbiter {
     drainedWallet: string,
     evidenceUrl: string,
     statement: string,
+    signature: string,
     level: FeePresetLevel = "standard"
   ): Promise<FeePresetEstimate | undefined> {
     return estimateWriteFeePreset(
@@ -88,7 +90,7 @@ class RecoveryArbiter {
       {
         address: this.contractAddress,
         functionName: "submit_claim",
-        args: [drainedWallet, evidenceUrl, statement],
+        args: [drainedWallet, evidenceUrl, statement, signature],
       },
       level,
     );
@@ -199,12 +201,40 @@ class RecoveryArbiter {
   }
 
   /**
-   * Submit a new fund-recovery claim
+   * Get every claim (across all claimants) filed against a given wallet -
+   * useful for surfacing competing claims once one has been approved.
+   */
+  async getClaimsForWallet(drainedWallet: string): Promise<Claim[]> {
+    try {
+      const result: any = await this.client.readContract({
+        address: this.contractAddress,
+        functionName: "get_claims_for_wallet",
+        args: [drainedWallet],
+      });
+
+      if (Array.isArray(result)) {
+        return result.map(decodeClaim);
+      }
+
+      return [];
+    } catch (error) {
+      console.error("Error fetching claims for wallet:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Submit a new fund-recovery claim. `signature` must be an EIP-191
+   * personal-sign signature of the exact ownership message (see
+   * lib/genlayer/signing.ts), produced by the drained wallet's own key -
+   * the contract rejects submission outright if it doesn't recover to
+   * `drainedWallet`.
    */
   async submitClaim(
     drainedWallet: string,
     evidenceUrl: string,
     statement: string,
+    signature: string,
     feePreset?: FeePresetEstimate
   ): Promise<string> {
     try {
@@ -212,7 +242,7 @@ class RecoveryArbiter {
       const txHash = await this.client.writeContract({
         address: this.contractAddress,
         functionName: "submit_claim",
-        args: [drainedWallet, evidenceUrl, statement],
+        args: [drainedWallet, evidenceUrl, statement, signature],
         value: BigInt(0),
         ...(fees ? { fees } : {}),
       });

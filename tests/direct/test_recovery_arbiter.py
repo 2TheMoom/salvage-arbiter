@@ -2,14 +2,37 @@
 
 import json
 
-from tests.direct.conftest import to_hex
+from tests.direct.conftest import (
+    to_hex,
+    DRAINED_WALLET_PRIVATE_KEY,
+    DRAINED_WALLET_ADDRESS,
+    OTHER_PRIVATE_KEY,
+    OTHER_ADDRESS,
+    sign_ownership_message,
+)
 
 CONTRACT = "contracts/recovery_arbiter.py"
-WALLET = "0x000000000000000000000000000000deadbeef"
+WALLET = f"eth:{DRAINED_WALLET_ADDRESS}"
 
 
-def _setup_verdict_mock(vm, evidence_body, verdict, confidence, reasoning):
+def _mock_chain_balance(vm, balance_wei: int = 0):
+    vm.mock_web(
+        r"publicnode\.com",
+        {
+            "method": "POST",
+            "status": 200,
+            "body": json.dumps({"jsonrpc": "2.0", "id": 1, "result": hex(balance_wei)}),
+        },
+    )
+
+
+def _valid_signature(claimant_hex: str, wallet: str = WALLET) -> str:
+    return sign_ownership_message(DRAINED_WALLET_PRIVATE_KEY, wallet, claimant_hex)
+
+
+def _setup_verdict_mock(vm, evidence_body, verdict, confidence, reasoning, balance_wei=0):
     vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": evidence_body})
+    _mock_chain_balance(vm, balance_wei)
     vm.mock_llm(
         r".*adjudicating a cryptocurrency fund-recovery claim.*",
         json.dumps(
@@ -24,7 +47,10 @@ def test_submit_claim(direct_vm, direct_deploy, direct_alice):
     alice = to_hex(direct_alice)
 
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/proof", "I own this wallet, see proof."
+        WALLET,
+        "https://evidence.example/proof",
+        "I own this wallet, see proof.",
+        _valid_signature(alice),
     )
 
     claim = contract.get_claim(claim_id)
@@ -36,44 +62,100 @@ def test_submit_claim(direct_vm, direct_deploy, direct_alice):
     assert claim.appeal_count == 0
 
 
+def test_submit_claim_with_invalid_signature_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    with direct_vm.expect_revert("Signature does not prove control of the drained wallet"):
+        contract.submit_claim(
+            WALLET, "https://evidence.example/proof", "statement", "0xnotasignature"
+        )
+
+
+def test_submit_claim_with_wrong_signer_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    # Well-formed signature, but signed by an unrelated key - not the drained wallet.
+    wrong_signature = sign_ownership_message(OTHER_PRIVATE_KEY, WALLET, alice)
+
+    with direct_vm.expect_revert("Signature does not prove control of the drained wallet"):
+        contract.submit_claim(
+            WALLET, "https://evidence.example/proof", "statement", wrong_signature
+        )
+
+
 def test_submit_duplicate_claim_fails(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
-    contract.submit_claim(WALLET, "https://evidence.example/proof", "statement")
+    contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+    )
 
     with direct_vm.expect_revert(
         "Claim already submitted for this wallet by this address"
     ):
-        contract.submit_claim(WALLET, "https://evidence.example/proof", "statement")
+        contract.submit_claim(
+            WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+        )
 
 
 def test_different_claimants_same_wallet(
     direct_vm, direct_deploy, direct_alice, direct_bob
 ):
     contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+    bob = to_hex(direct_bob)
 
     direct_vm.sender = direct_alice
     alice_claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/alice", "alice's statement"
+        WALLET, "https://evidence.example/alice", "alice's statement", _valid_signature(alice)
     )
 
     direct_vm.sender = direct_bob
     bob_claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/bob", "bob's statement"
+        WALLET, "https://evidence.example/bob", "bob's statement", _valid_signature(bob)
     )
 
     assert alice_claim_id != bob_claim_id
     assert contract.get_claim(alice_claim_id).drained_wallet == WALLET
     assert contract.get_claim(bob_claim_id).drained_wallet == WALLET
+    assert len(contract.get_claims_for_wallet(WALLET)) == 2
+
+
+def test_submit_claim_for_already_approved_wallet_fails(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+    bob = to_hex(direct_bob)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+    assert contract.get_claim(claim_id).status == "approved"
+
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert("This wallet already has an approved recovery claim"):
+        contract.submit_claim(
+            WALLET, "https://evidence.example/bob", "bob's statement", _valid_signature(bob)
+        )
 
 
 def test_adjudicate_approved(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/proof", "I own this wallet, see proof."
+        WALLET, "https://evidence.example/proof", "I own this wallet, see proof.", _valid_signature(alice)
     )
     _setup_verdict_mock(
         direct_vm,
@@ -94,9 +176,10 @@ def test_adjudicate_approved(direct_vm, direct_deploy, direct_alice):
 def test_adjudicate_denied(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/proof", "trust me"
+        WALLET, "https://evidence.example/proof", "trust me", _valid_signature(alice)
     )
     _setup_verdict_mock(
         direct_vm,
@@ -114,9 +197,10 @@ def test_adjudicate_denied(direct_vm, direct_deploy, direct_alice):
 def test_adjudicate_insufficient_evidence(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/proof", "trust me"
+        WALLET, "https://evidence.example/proof", "trust me", _valid_signature(alice)
     )
     _setup_verdict_mock(direct_vm, "Page not found.", "insufficient", 40, "No usable evidence.")
 
@@ -128,9 +212,10 @@ def test_adjudicate_insufficient_evidence(direct_vm, direct_deploy, direct_alice
 def test_adjudicate_clamps_confidence(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/proof", "statement"
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
     )
     _setup_verdict_mock(direct_vm, "proof", "approve", 150, "overconfident")
 
@@ -139,12 +224,34 @@ def test_adjudicate_clamps_confidence(direct_vm, direct_deploy, direct_alice):
     assert contract.get_claim(claim_id).verdict_confidence == 100
 
 
+def test_adjudicate_includes_chain_balance_in_prompt(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+    )
+
+    direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
+    _mock_chain_balance(direct_vm, balance_wei=123456)
+    direct_vm.mock_llm(
+        r".*Current balance.*123456 wei.*",
+        json.dumps({"verdict": "approve", "confidence": 90, "reasoning": "balance matches"}),
+    )
+
+    contract.adjudicate(claim_id)
+
+    assert contract.get_claim(claim_id).status == "approved"
+
+
 def test_adjudicate_already_adjudicated_fails(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/proof", "statement"
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
     )
     _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
     contract.adjudicate(claim_id)
@@ -163,15 +270,15 @@ def test_adjudicate_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
 
 def test_get_claims_by_address(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+    bob = to_hex(direct_bob)
 
     direct_vm.sender = direct_alice
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/proof", "statement"
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
     )
 
     direct_vm.sender = direct_bob
-    alice = to_hex(direct_alice)
-    bob = to_hex(direct_bob)
 
     alice_claims = contract.get_claims_by_address(alice)
     bob_claims = contract.get_claims_by_address(bob)
@@ -179,6 +286,11 @@ def test_get_claims_by_address(direct_vm, direct_deploy, direct_alice, direct_bo
     assert len(alice_claims) == 1
     assert alice_claims[0].id == claim_id
     assert len(bob_claims) == 0
+
+
+def test_get_claims_for_wallet_unknown_returns_empty(direct_deploy):
+    contract = direct_deploy(CONTRACT)
+    assert contract.get_claims_for_wallet("eth:0xdoesnotexist") == []
 
 
 def test_get_all_claims_empty(direct_deploy):
@@ -189,9 +301,10 @@ def test_get_all_claims_empty(direct_deploy):
 def test_appeal_denied_claim_resets_to_pending(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/weak", "trust me"
+        WALLET, "https://evidence.example/weak", "trust me", _valid_signature(alice)
     )
     _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")
     contract.adjudicate(claim_id)
@@ -214,9 +327,10 @@ def test_appeal_denied_claim_resets_to_pending(direct_vm, direct_deploy, direct_
 def test_appeal_then_readjudicate_to_approved(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
     claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/weak", "trust me"
+        WALLET, "https://evidence.example/weak", "trust me", _valid_signature(alice)
     )
     _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")
     contract.adjudicate(claim_id)
@@ -232,13 +346,17 @@ def test_appeal_then_readjudicate_to_approved(direct_vm, direct_deploy, direct_a
     assert claim.status == "approved"
     assert claim.verdict_confidence == 95
     assert claim.appeal_count == 1
+    assert contract.get_claims_for_wallet(WALLET)[0].id == claim_id
 
 
 def test_appeal_by_non_claimant_fails(direct_vm, direct_deploy, direct_alice, direct_bob):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
-    claim_id = contract.submit_claim(WALLET, "https://evidence.example/weak", "trust me")
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/weak", "trust me", _valid_signature(alice)
+    )
     _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")
     contract.adjudicate(claim_id)
 
@@ -250,8 +368,11 @@ def test_appeal_by_non_claimant_fails(direct_vm, direct_deploy, direct_alice, di
 def test_appeal_approved_claim_fails(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
-    claim_id = contract.submit_claim(WALLET, "https://evidence.example/proof", "statement")
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+    )
     _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
     contract.adjudicate(claim_id)
 
@@ -262,8 +383,11 @@ def test_appeal_approved_claim_fails(direct_vm, direct_deploy, direct_alice):
 def test_appeal_pending_claim_fails(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
-    claim_id = contract.submit_claim(WALLET, "https://evidence.example/proof", "statement")
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+    )
 
     with direct_vm.expect_revert("Claim is still awaiting its first adjudication"):
         contract.submit_appeal(claim_id, "https://evidence.example/more", "more evidence")
@@ -280,8 +404,11 @@ def test_appeal_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
 def test_appeal_max_limit_reached_fails(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
 
-    claim_id = contract.submit_claim(WALLET, "https://evidence.example/weak", "trust me")
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/weak", "trust me", _valid_signature(alice)
+    )
 
     for i in range(3):
         _setup_verdict_mock(direct_vm, "unrelated page", "deny", 90, "no mention of wallet")

@@ -12,6 +12,7 @@ export interface Claim {
   drained_wallet: string;
   evidence_url: string;
   statement: string;
+  signature: string;
   status: ClaimStatus;
   verdict_confidence: number;
   verdict_reasoning: string;

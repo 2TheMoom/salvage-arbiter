@@ -1,10 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Loader2, Wallet, Link as LinkIcon, FileText } from "lucide-react";
+import { Plus, Loader2, Wallet, Link as LinkIcon, FileText, ShieldCheck, Copy, Check, AlertTriangle } from "lucide-react";
 import { useSubmitClaim } from "@/lib/hooks/useRecoveryArbiter";
 import type { FeePresetLevel } from "@/lib/genlayer/fees";
 import { useWallet } from "@/lib/genlayer/wallet";
+import {
+  buildOwnershipMessage,
+  extractEthAddress,
+  signOwnershipMessage,
+  verifyOwnershipSignature,
+} from "@/lib/genlayer/signing";
 import { error } from "@/lib/utils/toast";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
@@ -21,11 +27,30 @@ export function SubmitClaimModal() {
   const [statement, setStatement] = useState("");
   const [feePresetLevel, setFeePresetLevel] = useState<FeePresetLevel>("standard");
 
+  // Signature step
+  const [signature, setSignature] = useState("");
+  const [signedForAddress, setSignedForAddress] = useState<string | null>(null);
+  const [isSigning, setIsSigning] = useState(false);
+  const [signError, setSignError] = useState("");
+  const [copied, setCopied] = useState(false);
+
   const [errors, setErrors] = useState({
     drainedWallet: "",
     evidenceUrl: "",
     statement: "",
   });
+
+  const walletAddress = extractEthAddress(drainedWallet);
+  const message = walletAddress && address ? buildOwnershipMessage(drainedWallet.trim(), address) : "";
+  const accountChangedSinceSigning = signature !== "" && signedForAddress !== address;
+
+  // A stale signature (wallet/address changed after signing) can't be submitted
+  useEffect(() => {
+    if (signature && accountChangedSinceSigning) {
+      setSignature("");
+      setSignError("Your connected account changed - please sign again.");
+    }
+  }, [accountChangedSinceSigning, signature]);
 
   // Auto-close modal when wallet disconnects, unless a submission is in flight
   useEffect(() => {
@@ -34,11 +59,42 @@ export function SubmitClaimModal() {
     }
   }, [isConnected, isOpen, isSubmitting]);
 
+  const handleSign = async () => {
+    if (!walletAddress || !address) return;
+    setIsSigning(true);
+    setSignError("");
+    try {
+      const sig = await signOwnershipMessage(walletAddress, message);
+      const verified = await verifyOwnershipSignature(walletAddress, message, sig);
+      if (!verified) {
+        setSignError(
+          "That signature doesn't match this wallet address. Make sure you signed with the drained wallet's own account, not your claiming account."
+        );
+        return;
+      }
+      setSignature(sig);
+      setSignedForAddress(address);
+    } catch (err: any) {
+      setSignError(err.message || "Failed to sign message");
+    } finally {
+      setIsSigning(false);
+    }
+  };
+
+  const handleCopyMessage = async () => {
+    if (!message) return;
+    await navigator.clipboard.writeText(message);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
   const validateForm = (): boolean => {
     const newErrors = { drainedWallet: "", evidenceUrl: "", statement: "" };
 
     if (!drainedWallet.trim()) {
       newErrors.drainedWallet = "Drained wallet address is required";
+    } else if (!walletAddress) {
+      newErrors.drainedWallet = "Must be a valid 0x... address (optionally chain-prefixed, e.g. eth:0x...)";
     }
 
     if (!evidenceUrl.trim()) {
@@ -71,10 +127,16 @@ export function SubmitClaimModal() {
       return;
     }
 
+    if (!signature || accountChangedSinceSigning) {
+      error("Please sign the ownership message with the drained wallet first");
+      return;
+    }
+
     submitClaim({
       drainedWallet: drainedWallet.trim(),
       evidenceUrl: evidenceUrl.trim(),
       statement: statement.trim(),
+      signature,
       feePresetLevel,
     });
   };
@@ -83,6 +145,9 @@ export function SubmitClaimModal() {
     setDrainedWallet("");
     setEvidenceUrl("");
     setStatement("");
+    setSignature("");
+    setSignedForAddress(null);
+    setSignError("");
     setErrors({ drainedWallet: "", evidenceUrl: "", statement: "" });
   };
 
@@ -113,8 +178,8 @@ export function SubmitClaimModal() {
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold">Submit Recovery Claim</DialogTitle>
           <DialogDescription>
-            Assert ownership of a drained wallet and point to public evidence.
-            Validators will independently review it and reach an AI-adjudicated verdict.
+            Prove control of a drained wallet with a signature, point to supporting
+            evidence, and validators will independently reach an AI-adjudicated verdict.
           </DialogDescription>
         </DialogHeader>
 
@@ -128,16 +193,79 @@ export function SubmitClaimModal() {
             <Input
               id="drainedWallet"
               type="text"
-              placeholder="0x... (the compromised wallet, any chain)"
+              placeholder="0x... (the compromised wallet; eth: prefix optional)"
               value={drainedWallet}
               onChange={(e) => {
                 setDrainedWallet(e.target.value);
                 setErrors({ ...errors, drainedWallet: "" });
+                setSignature("");
+                setSignError("");
               }}
               className={errors.drainedWallet ? "border-destructive" : ""}
             />
             {errors.drainedWallet && (
               <p className="text-xs text-destructive">{errors.drainedWallet}</p>
+            )}
+          </div>
+
+          {/* Ownership signature */}
+          <div className="space-y-2">
+            <Label className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4" />
+              Prove Ownership
+            </Label>
+
+            {!walletAddress ? (
+              <p className="text-xs text-muted-foreground">
+                Enter a valid drained wallet address above to generate a message to sign.
+              </p>
+            ) : signature && !accountChangedSinceSigning ? (
+              <div className="flex items-center gap-2 rounded-md border border-green-500/30 bg-green-500/10 px-3 py-2 text-sm text-green-400">
+                <Check className="w-4 h-4 shrink-0" />
+                Ownership verified via signature
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="rounded-md border border-white/10 bg-muted/10 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs font-mono break-all text-muted-foreground">{message}</p>
+                    <button
+                      type="button"
+                      onClick={handleCopyMessage}
+                      className="shrink-0 text-muted-foreground hover:text-accent"
+                      aria-label="Copy message"
+                    >
+                      {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Switch MetaMask to the drained wallet&apos;s account, then sign this exact
+                  message. You&apos;ll switch back to your normal account before submitting.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={handleSign}
+                  disabled={isSigning}
+                >
+                  {isSigning ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Waiting for signature...
+                    </>
+                  ) : (
+                    "Sign with MetaMask"
+                  )}
+                </Button>
+                {signError && (
+                  <p className="text-xs text-destructive flex items-start gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    {signError}
+                  </p>
+                )}
+              </div>
             )}
           </div>
 
@@ -171,7 +299,7 @@ export function SubmitClaimModal() {
             </Label>
             <textarea
               id="statement"
-              placeholder="Explain why you're the rightful owner of this wallet..."
+              placeholder="Explain the circumstances of the drain and your recovery request..."
               value={statement}
               onChange={(e) => {
                 setStatement(e.target.value);
@@ -188,12 +316,16 @@ export function SubmitClaimModal() {
           </div>
 
           <div className="space-y-3">
-            <Label>Fee Preset</Label>
+            {/* Labeled "dispute rounds" (not "appeals") here specifically to avoid
+                colliding with the claim-appeal feature - this fee tier controls
+                GenLayer's network-level validator dispute budget, an unrelated
+                protocol concept. */}
+            <Label>Network Fee Tier</Label>
             <div className="grid grid-cols-3 gap-2">
               {([
-                { value: "low", label: "Low", detail: "No appeals" },
-                { value: "standard", label: "Standard", detail: "1 appeal" },
-                { value: "high", label: "High", detail: "2 appeals" },
+                { value: "low", label: "Low", detail: "No extra rounds" },
+                { value: "standard", label: "Standard", detail: "+1 dispute round" },
+                { value: "high", label: "High", detail: "+2 dispute rounds" },
               ] as const).map((option) => (
                 <button
                   key={option.value}
@@ -223,7 +355,12 @@ export function SubmitClaimModal() {
             >
               Cancel
             </Button>
-            <Button type="submit" variant="gradient" className="flex-1" disabled={isSubmitting}>
+            <Button
+              type="submit"
+              variant="gradient"
+              className="flex-1"
+              disabled={isSubmitting || !signature || accountChangedSinceSigning}
+            >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />

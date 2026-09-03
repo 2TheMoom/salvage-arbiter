@@ -94,11 +94,13 @@ export function useSubmitClaim() {
       drainedWallet,
       evidenceUrl,
       statement,
+      signature,
       feePresetLevel,
     }: {
       drainedWallet: string;
       evidenceUrl: string;
       statement: string;
+      signature: string;
       feePresetLevel?: FeePresetLevel;
     }) => {
       if (!contract) {
@@ -112,9 +114,10 @@ export function useSubmitClaim() {
         drainedWallet,
         evidenceUrl,
         statement,
+        signature,
         feePresetLevel ?? "standard"
       );
-      return contract.submitClaim(drainedWallet, evidenceUrl, statement, feePreset);
+      return contract.submitClaim(drainedWallet, evidenceUrl, statement, signature, feePreset);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["claims"] });

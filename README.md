@@ -17,22 +17,45 @@ A denied or insufficient verdict isn't final: the claimant can appeal with new e
 restricted to the original claimant, so the AI's non-determinism can't be gamed by
 spam-retrying an unchanged submission.
 
+Ownership itself is settled by cryptography, not AI judgment: `submit_claim` requires
+an EIP-191 signature proving control of the drained wallet's private key, verified via
+a pure-Python secp256k1 ECDSA recovery running identically on every validator (no
+external RPC dependency for this check — see "Design notes" below for why). The LLM's
+job is judging whether the claimant's stated circumstances are coherent and consistent
+with an independently-fetched, authoritative on-chain balance fact, not re-litigating
+identity. A wallet can only ever have one approved claim; `submit_claim` rejects new
+submissions once one exists.
+
 ## Live deployment
 Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **Contract:** [`0xdc1801D971483eCf4Afd582c19a176419F61Bbcc`](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc)
-- Verified end-to-end with a real claim: a deliberately weak evidence URL was submitted
-  and denied, then appealed with different (still weak, for testing) evidence —
-  `submit_appeal` correctly reset the claim to `pending`, cleared the prior verdict, and
-  incremented `appeal_count` to 1, confirmed by reading the claim back on-chain.
-  Re-adjudication after the appeal was still pending finalization as of this writing due
-  to validator-side LLM-call timeouts on the testnet (visible in transaction traces
-  computing the correct verdict but failing to reach quorum) — a live infrastructure
-  condition at the time, not a contract issue; `adjudicate` itself was independently
-  verified working on both this deployment and the original one.
-- Previous deployment (pre-appeal-path):
-  [`0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03`](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03) —
-  verified end-to-end with a denied claim (4/5 validators agreed, 1 timeout, 100%
-  confidence).
+- **Contract:** [`0x1310D205603851E9c78182b67F52Fe6a2B60041C`](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C)
+- Verified end-to-end via the real `genlayer-js` write path (not just the CLI): a
+  signed claim was submitted, its EIP-191 signature correctly recovered on-chain via
+  the pure-Python ECDSA implementation, and `adjudicate` correctly denied it with 95%
+  confidence, reasoning that the claimant's statement described a test action rather
+  than an actual wallet compromise — confirming signature verification, the
+  authoritative chain-balance lookup, and LLM judgment all work together correctly.
+- Previous deployments (superseded, kept for history):
+  [appeal-path only](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc),
+  [original, pre-appeal](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03).
+
+### Design notes
+- **Signature verification uses no external RPC.** An earlier version called a public
+  RPC's `ecrecover` precompile from within the equivalence-principle nondet mechanism.
+  Live testing showed this was unreliable: different validators' calls to the same
+  provider could return inconsistent results for the identical, deterministic
+  computation (observed both as an opaque gateway-side "Internal error" and as
+  outright request blocking without a browser-like `User-Agent`), causing spurious
+  consensus failures. A pure-Python secp256k1 implementation has no such failure
+  mode — every validator runs identical bytecode on identical input and always agrees
+  — so it replaced the RPC call entirely for this specific, security-critical check.
+- **The `genlayer` CLI's `--args` parser is not schema-aware.** While debugging the
+  above, a raw hex-string signature passed via `genlayer write ... --args` arrived
+  inside the contract as a Python `int`, not a `str` — the CLI guesses argument types
+  from the literal command-line string's shape, unlike `genlayer-js`'s `writeContract`,
+  which encodes arguments according to the contract's own declared schema. This only
+  affects CLI-based testing; the frontend (using `genlayer-js` directly, like any real
+  user's browser would) was unaffected and is what the verification above used.
 
 This started from GenLayer's official
 [project boilerplate](https://github.com/genlayerlabs/genlayer-project-boilerplate);
