@@ -23,19 +23,23 @@ a pure-Python secp256k1 ECDSA recovery running identically on every validator (n
 external RPC dependency for this check — see "Design notes" below for why). The LLM's
 job is judging whether the claimant's stated circumstances are coherent and consistent
 with an independently-fetched, authoritative on-chain balance fact, not re-litigating
-identity. A wallet can only ever have one approved claim; `submit_claim` rejects new
-submissions once one exists.
+identity. A wallet can only ever have one approved claim: `submit_claim` rejects new
+submissions once one exists, and `adjudicate` re-checks the same condition again right
+before approving, so two claims filed for the same wallet while both are still pending
+can't both end up approved — whichever is adjudicated second is auto-denied, citing the
+first claim's ID, without even consulting the LLM.
 
 ## Live deployment
 Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **Contract:** [`0x1310D205603851E9c78182b67F52Fe6a2B60041C`](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C)
-- Verified end-to-end via the real `genlayer-js` write path (not just the CLI): a
-  signed claim was submitted, its EIP-191 signature correctly recovered on-chain via
-  the pure-Python ECDSA implementation, and `adjudicate` correctly denied it with 95%
-  confidence, reasoning that the claimant's statement described a test action rather
-  than an actual wallet compromise — confirming signature verification, the
-  authoritative chain-balance lookup, and LLM judgment all work together correctly.
+- **Contract:** [`0xc4e01803B993191f75e294B71F61a042e135F70F`](https://explorer-bradbury.genlayer.com/address/0xc4e01803B993191f75e294B71F61a042e135F70F)
+- Verified via 67 passing direct-mode tests (`pytest tests/direct/`), including one
+  that reproduces the exact competing-claim race: two claims filed for the same wallet
+  while both are pending, the first approved, then the second adjudicated — it's
+  auto-denied referencing the first claim's ID instead of being independently approved.
 - Previous deployments (superseded, kept for history):
+  [signature + chain-check + first competing-claim pass](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C)
+  (that pass only checked for a competing claim at submission time, not at
+  adjudication time — the gap this deployment closes),
   [appeal-path only](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc),
   [original, pre-appeal](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03).
 
@@ -169,15 +173,20 @@ The app will be available at http://localhost:3000/.
 
 ## How RecoveryArbiter Works
 
-1. **`submit_claim(drained_wallet, evidence_url, statement)`** — a claimant registers a
-   claim over an (external-chain) drained wallet address, pointing to public evidence
-   and explaining their case. Returns a `claim_id`; fails if that wallet already has a
-   pending/adjudicated claim from the same address.
-2. **`adjudicate(claim_id)`** — fetches `evidence_url` live, asks an LLM whether the
-   evidence plausibly proves ownership, and reaches multi-validator consensus on the
-   verdict via the leader/validator equivalence-principle pattern (validators agree on
-   the `verdict` field even if reasoning text differs). Sets `status` to `approved`,
-   `denied`, or `insufficient`, plus a `confidence` (0–100) and `reasoning`.
+1. **`submit_claim(drained_wallet, evidence_url, statement, signature)`** — a claimant
+   registers a claim over an (external-chain) drained wallet address, with an EIP-191
+   signature proving control of it, plus public evidence and their case. Returns a
+   `claim_id`; fails if the signature doesn't recover to `drained_wallet`, or if that
+   wallet already has an approved claim.
+2. **`adjudicate(claim_id)`** — first re-checks whether `drained_wallet` already has a
+   *different* approved claim (possible if two claims were filed for the same wallet
+   while both were still pending) and auto-denies this one if so, without calling the
+   LLM. Otherwise fetches `evidence_url` live plus an authoritative on-chain balance for
+   `drained_wallet`, asks an LLM whether the evidence and statement are coherent given
+   that fact, and reaches multi-validator consensus on the verdict via the
+   leader/validator equivalence-principle pattern (validators agree on the `verdict`
+   field even if reasoning text differs). Sets `status` to `approved`, `denied`, or
+   `insufficient`, plus a `confidence` (0–100) and `reasoning`.
 3. **`submit_appeal(claim_id, evidence_url, statement)`** — the original claimant only,
    and only on a `denied`/`insufficient` claim, can replace the evidence/statement and
    reset `status` back to `pending` (clearing the old verdict) so `adjudicate` can

@@ -324,6 +324,16 @@ This result should be perfectly parsable by a JSON parser without errors.
         if claim.status != "pending":
             raise gl.vm.UserError("Claim already adjudicated")
 
+        existing_approved_id = self.approved_wallets.get(claim.drained_wallet)
+        if existing_approved_id is not None and existing_approved_id != claim.id:
+            claim.status = "denied"
+            claim.verdict_confidence = 100
+            claim.verdict_reasoning = (
+                "This wallet already has a different approved recovery claim "
+                f"({existing_approved_id}); competing claims cannot also be approved."
+            )
+            return
+
         verdict = self._judge(claim.drained_wallet, claim.evidence_url, claim.statement)
 
         verdict_value = str(verdict.get("verdict", "")).lower()

@@ -149,6 +149,44 @@ def test_submit_claim_for_already_approved_wallet_fails(
         )
 
 
+def test_adjudicate_second_pending_claim_for_approved_wallet_denied(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """Two claims for the same wallet can both be submitted while pending
+    (submit_claim's approved_wallets check only guards against a wallet
+    that's *already* approved). Once the first is approved, the second
+    must be auto-denied at adjudication time, even if the LLM would have
+    approved it - a wallet can only ever end up with one approved claim.
+    """
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+    bob = to_hex(direct_bob)
+
+    direct_vm.sender = direct_alice
+    alice_claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/alice", "alice's statement", _valid_signature(alice)
+    )
+
+    direct_vm.sender = direct_bob
+    bob_claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/bob", "bob's statement", _valid_signature(bob)
+    )
+
+    direct_vm.sender = direct_alice
+    _setup_verdict_mock(direct_vm, "alice", "approve", 90, "looks good")
+    contract.adjudicate(alice_claim_id)
+    assert contract.get_claim(alice_claim_id).status == "approved"
+
+    direct_vm.sender = direct_bob
+    _setup_verdict_mock(direct_vm, "bob", "approve", 90, "would also approve")
+    contract.adjudicate(bob_claim_id)
+
+    bob_claim = contract.get_claim(bob_claim_id)
+    assert bob_claim.status == "denied"
+    assert alice_claim_id in bob_claim.verdict_reasoning
+    assert contract.get_claim(alice_claim_id).status == "approved"
+
+
 def test_adjudicate_approved(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy(CONTRACT)
     direct_vm.sender = direct_alice
