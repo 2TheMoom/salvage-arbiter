@@ -64,6 +64,17 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   it, and `release()` correctly read RecoveryArbiter's real on-chain status via
   `gl.get_contract_at` and refused to pay out - proving the integration genuinely works,
   not just that the two contracts compile against each other.
+- **Known limitation:** the *approved* payout path - `release()` actually transferring
+  escrowed funds to a claimant - could not be verified live, because `emit_transfer`
+  does not currently deliver value on Bradbury testnet at all, even from a minimal
+  contract with zero conditional logic. This is a confirmed GenLayer platform bug, not
+  a flaw in this contract: see
+  [genlayerlabs/genvm-manager#20](https://github.com/genlayerlabs/genvm-manager/issues/20),
+  where a from-scratch repro isolating the issue was contributed. RecoveryReleaseVault's
+  payout code is structurally identical to GenLayer Studio's own `faucet.py` example and
+  follows the documented pattern exactly; the gating logic that decides *whether* to pay
+  is fully verified (above), only the final on-chain transfer dispatch is currently
+  blocked by GenLayer's own infrastructure.
 - Previous RecoveryArbiter deployments (superseded, kept for history):
   [wallet-address canonicalization fix, pre-drain-tx-check](https://explorer-bradbury.genlayer.com/address/0x3C16fA8C61229B6FCDf87b31d475654e9DFea427)
   (adjudication only checked the LLM-fetched current balance, with no way to confirm a
