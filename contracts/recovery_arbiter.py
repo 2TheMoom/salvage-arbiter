@@ -340,6 +340,18 @@ class RecoveryArbiter(gl.Contract):
                 }
 
             web_data = gl.nondet.web.render(evidence_url, mode="text")
+
+            if wallet_hex not in web_data.lower():
+                return {
+                    "verdict": "deny",
+                    "confidence": 100,
+                    "reasoning": (
+                        f"The evidence at {evidence_url} does not mention the claimed "
+                        "wallet address anywhere, so it cannot be authenticated as "
+                        "evidence for this specific wallet."
+                    ),
+                }
+
             balance = self._fetch_chain_balance(drained_wallet)
 
             prompt = f"""
@@ -467,6 +479,25 @@ This result should be perfectly parsable by a JSON parser without errors.
         if claim_id not in self.claims:
             raise gl.vm.UserError("Claim not found")
         return self.claims[claim_id]
+
+    @gl.public.view
+    def get_claim_status(self, claim_id: str) -> str:
+        """Narrow, primitive-typed getter for downstream consumers (e.g. a
+        recovery/escrow contract deciding whether to release funds) - a
+        single str is trivial to consume via a cross-contract call, unlike
+        decoding the full Claim dataclass. See contracts/recovery_release_vault.py
+        for a working example consumer."""
+        if claim_id not in self.claims:
+            raise gl.vm.UserError("Claim not found")
+        return self.claims[claim_id].status
+
+    @gl.public.view
+    def get_claim_claimant(self, claim_id: str) -> Address:
+        """Companion to get_claim_status: who to pay out to once a
+        downstream consumer confirms the claim is approved."""
+        if claim_id not in self.claims:
+            raise gl.vm.UserError("Claim not found")
+        return self.claims[claim_id].claimant
 
     @gl.public.view
     def get_claims_by_address(self, claimant: str) -> list:

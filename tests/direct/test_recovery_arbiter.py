@@ -48,7 +48,13 @@ def _valid_signature(claimant_hex: str, wallet: str = WALLET) -> str:
 
 
 def _setup_verdict_mock(vm, evidence_body, verdict, confidence, reasoning, balance_wei=0):
-    vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": evidence_body})
+    # The contract requires evidence to mention the wallet address before
+    # ever consulting the LLM (authenticates it as being about THIS wallet),
+    # so every mocked evidence body includes it.
+    vm.mock_web(
+        r".*evidence\.example.*",
+        {"status": 200, "body": f"{evidence_body} (wallet: {DRAINED_WALLET_ADDRESS})"},
+    )
     _mock_drain_tx(vm)
     _mock_chain_balance(vm, balance_wei)
     vm.mock_llm(
@@ -407,7 +413,10 @@ def test_adjudicate_includes_chain_balance_in_prompt(direct_vm, direct_deploy, d
         WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
     )
 
-    direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
+    direct_vm.mock_web(
+        r".*evidence\.example.*",
+        {"status": 200, "body": f"proof (wallet: {DRAINED_WALLET_ADDRESS})"},
+    )
     _mock_drain_tx(direct_vm)
     _mock_chain_balance(direct_vm, balance_wei=123456)
     direct_vm.mock_llm(
@@ -470,6 +479,74 @@ def test_adjudicate_denies_when_drain_tx_from_wrong_address(direct_vm, direct_de
     assert claim.status == "denied"
     assert DRAIN_TX_HASH in claim.verdict_reasoning
     assert claim.verdict_confidence == 100
+
+
+def test_adjudicate_denies_when_evidence_does_not_mention_wallet(
+    direct_vm, direct_deploy, direct_alice
+):
+    """Authoritative check: evidence that never mentions the claimed wallet
+    address anywhere can't be authenticated as being about this wallet, so
+    it's auto-denied without consulting the LLM - a generic or copy-pasted
+    URL isn't enough.
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/generic", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+
+    direct_vm.mock_web(
+        r".*evidence\.example.*", {"status": 200, "body": "This page mentions nothing specific."}
+    )
+    _mock_drain_tx(direct_vm)
+    _mock_chain_balance(direct_vm, balance_wei=0)
+    # No LLM mock registered - if the contract called the LLM here, the
+    # test would fail with an unmocked-prompt error, proving it didn't.
+
+    contract.adjudicate(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "denied"
+    assert "does not mention the claimed wallet" in claim.verdict_reasoning
+    assert claim.verdict_confidence == 100
+
+
+def test_get_claim_status_and_claimant(direct_vm, direct_deploy, direct_alice):
+    """Narrow getters used by downstream consumers (e.g.
+    RecoveryReleaseVault) - see contracts/recovery_release_vault.py."""
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+
+    assert contract.get_claim_status(claim_id) == "pending"
+    assert contract.get_claim_claimant(claim_id).as_hex == alice
+
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    assert contract.get_claim_status(claim_id) == "approved"
+
+
+def test_get_claim_status_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    with direct_vm.expect_revert("Claim not found"):
+        contract.get_claim_status("nonexistent")
+
+
+def test_get_claim_claimant_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    with direct_vm.expect_revert("Claim not found"):
+        contract.get_claim_claimant("nonexistent")
 
 
 def test_adjudicate_already_adjudicated_fails(direct_vm, direct_deploy, direct_alice):
