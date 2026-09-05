@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Scale, Loader2, Link as LinkIcon, FileText } from "lucide-react";
+import { Scale, Loader2, Link as LinkIcon, FileText, Hash } from "lucide-react";
 import { useSubmitAppeal } from "@/lib/hooks/useRecoveryArbiter";
 import type { FeePresetLevel } from "@/lib/genlayer/fees";
 import { getTxExplorerUrl } from "@/lib/genlayer/chains";
@@ -23,15 +23,17 @@ export function AppealModal({ claim, open, onOpenChange }: AppealModalProps) {
 
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [statement, setStatement] = useState("");
+  const [drainTxHash, setDrainTxHash] = useState(claim.drain_tx_hash);
   const [feePresetLevel, setFeePresetLevel] = useState<FeePresetLevel>("standard");
-  const [errors, setErrors] = useState({ evidenceUrl: "", statement: "" });
+  const [errors, setErrors] = useState({ evidenceUrl: "", statement: "", drainTxHash: "" });
 
   const appealsLeft = MAX_APPEALS - claim.appeal_count;
 
   const resetForm = () => {
     setEvidenceUrl("");
     setStatement("");
-    setErrors({ evidenceUrl: "", statement: "" });
+    setDrainTxHash(claim.drain_tx_hash);
+    setErrors({ evidenceUrl: "", statement: "", drainTxHash: "" });
     clearPendingTx();
   };
 
@@ -51,7 +53,7 @@ export function AppealModal({ claim, open, onOpenChange }: AppealModalProps) {
   }, [isSuccess]);
 
   const validateForm = (): boolean => {
-    const newErrors = { evidenceUrl: "", statement: "" };
+    const newErrors = { evidenceUrl: "", statement: "", drainTxHash: "" };
 
     if (!evidenceUrl.trim()) {
       newErrors.evidenceUrl = "A public evidence URL is required";
@@ -67,6 +69,12 @@ export function AppealModal({ claim, open, onOpenChange }: AppealModalProps) {
       newErrors.statement = "Please explain what's new or different";
     }
 
+    if (!drainTxHash.trim()) {
+      newErrors.drainTxHash = "The transaction hash that drained this wallet is required";
+    } else if (!/^0x[0-9a-fA-F]{64}$/.test(drainTxHash.trim())) {
+      newErrors.drainTxHash = "Must be a 32-byte transaction hash (0x followed by 64 hex characters)";
+    }
+
     setErrors(newErrors);
     return !Object.values(newErrors).some((e) => e !== "");
   };
@@ -79,6 +87,7 @@ export function AppealModal({ claim, open, onOpenChange }: AppealModalProps) {
       claimId: claim.id,
       evidenceUrl: evidenceUrl.trim(),
       statement: statement.trim(),
+      drainTxHash: drainTxHash.trim(),
       feePresetLevel,
     });
   };
@@ -123,6 +132,31 @@ export function AppealModal({ claim, open, onOpenChange }: AppealModalProps) {
             />
             {errors.evidenceUrl && (
               <p className="text-xs text-destructive">{errors.evidenceUrl}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="appealDrainTxHash" className="flex items-center gap-2">
+              <Hash className="w-4 h-4" />
+              Drain Transaction Hash
+            </Label>
+            <Input
+              id="appealDrainTxHash"
+              type="text"
+              placeholder="0x... (the transaction that drained this wallet)"
+              value={drainTxHash}
+              onChange={(e) => {
+                setDrainTxHash(e.target.value);
+                setErrors({ ...errors, drainTxHash: "" });
+              }}
+              className={errors.drainTxHash ? "border-destructive" : ""}
+            />
+            <p className="text-xs text-muted-foreground">
+              Pre-filled from your original submission - update it only if you cited the
+              wrong transaction the first time.
+            </p>
+            {errors.drainTxHash && (
+              <p className="text-xs text-destructive">{errors.drainTxHash}</p>
             )}
           </div>
 

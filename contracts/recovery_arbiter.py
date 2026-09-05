@@ -35,6 +35,7 @@ class Claim:
     evidence_url: str
     statement: str
     signature: str
+    drain_tx_hash: str
     status: str  # "pending" | "approved" | "denied" | "insufficient"
     verdict_confidence: u256
     verdict_reasoning: str
@@ -138,13 +139,18 @@ class RecoveryArbiter(gl.Contract):
 
     A claimant cryptographically proves control of a drained wallet via an
     EIP-191 signed message (verified through pure-Python ECDSA recovery,
-    not AI judgment), then validators independently fetch supporting
-    evidence and authoritative on-chain facts and reach consensus on a
-    verdict via the equivalence principle. The result is an on-chain
-    attestation that an off-chain recovery flow (e.g. Salvage's cross-chain
-    rescue router) can require before releasing funds - one attestation
-    per wallet, since an already-approved wallet cannot receive competing
-    claims.
+    not AI judgment) and cites the specific transaction that drained it,
+    which is independently confirmed on-chain before the LLM is ever
+    consulted - this covers approval/phishing drains, where the victim
+    still holds their key but was tricked into signing away funds, not
+    private-key theft (which no signature-based scheme can prove, since
+    only the thief could then sign anything). Validators then fetch
+    supporting evidence and authoritative on-chain facts and reach
+    consensus on a verdict via the equivalence principle. The result is an
+    on-chain attestation that an off-chain recovery flow (e.g. Salvage's
+    cross-chain rescue router) can require before releasing funds - one
+    attestation per wallet, since an already-approved wallet cannot
+    receive competing claims.
     """
 
     claims: TreeMap[str, Claim]
@@ -212,6 +218,7 @@ class RecoveryArbiter(gl.Contract):
         evidence_url: str,
         statement: str,
         signature: str,
+        drain_tx_hash: str,
     ) -> str:
         sender = gl.message.sender_address
         wallet_key = _canonical_wallet_key(drained_wallet)
@@ -239,6 +246,7 @@ class RecoveryArbiter(gl.Contract):
             evidence_url=evidence_url,
             statement=statement,
             signature=signature,
+            drain_tx_hash=drain_tx_hash,
             status="pending",
             verdict_confidence=0,
             verdict_reasoning="",
@@ -263,7 +271,9 @@ class RecoveryArbiter(gl.Contract):
             }
         )
         try:
-            resp = gl.nondet.web.post(CHAIN_DATA_RPC_URL, body=body, headers=RPC_HEADERS)
+            resp = gl.nondet.web.post(
+                CHAIN_DATA_RPC_URL + "?call=balance", body=body, headers=RPC_HEADERS
+            )
             payload = json.loads((resp.body or b"").decode("utf-8"))
             balance_hex = payload.get("result")
             if not balance_hex:
@@ -272,8 +282,63 @@ class RecoveryArbiter(gl.Contract):
         except (ValueError, AttributeError, TypeError):
             return "unknown (RPC lookup failed)"
 
-    def _judge(self, drained_wallet: str, evidence_url: str, statement: str) -> dict:
+    def _fetch_tx_from_address(self, tx_hash: str) -> str | None:
+        """Returns the on-chain transaction's 'from' address, canonicalized
+        the same way as a drained wallet (lowercase, no "0x") so it can be
+        compared directly against _extract_address_hex(drained_wallet).
+        Returns None if the transaction doesn't exist or the lookup fails.
+        Used to verify a claimant's cited drain transaction actually
+        happened, rather than trusting a citation the LLM can't
+        independently check."""
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "eth_getTransactionByHash",
+                "params": [tx_hash],
+            }
+        )
+        try:
+            # The query suffix has no effect on the real RPC call (JSON-RPC
+            # routing is entirely body-based) - it only lets tests mock this
+            # call distinctly from _fetch_chain_balance's identical base URL.
+            resp = gl.nondet.web.post(
+                CHAIN_DATA_RPC_URL + "?call=tx", body=body, headers=RPC_HEADERS
+            )
+            payload = json.loads((resp.body or b"").decode("utf-8"))
+            result = payload.get("result")
+            if not result:
+                return None
+            from_address = result.get("from")
+            return _extract_address_hex(from_address) if from_address else None
+        except (ValueError, AttributeError, TypeError):
+            return None
+
+    def _judge(
+        self, drained_wallet: str, evidence_url: str, statement: str, drain_tx_hash: str
+    ) -> dict:
         def leader_fn() -> dict:
+            wallet_hex = _extract_address_hex(drained_wallet)
+            tx_from = self._fetch_tx_from_address(drain_tx_hash)
+
+            if tx_from is None:
+                return {
+                    "verdict": "deny",
+                    "confidence": 100,
+                    "reasoning": (
+                        f"Cited drain transaction {drain_tx_hash} could not be found on-chain."
+                    ),
+                }
+            if tx_from != wallet_hex:
+                return {
+                    "verdict": "deny",
+                    "confidence": 100,
+                    "reasoning": (
+                        f"Cited drain transaction {drain_tx_hash} was not sent from the "
+                        "claimed wallet - it originated from a different address."
+                    ),
+                }
+
             web_data = gl.nondet.web.render(evidence_url, mode="text")
             balance = self._fetch_chain_balance(drained_wallet)
 
@@ -284,9 +349,12 @@ Drained/compromised wallet address: {drained_wallet}
 
 The claimant has already cryptographically proven they control (or retain signing
 access to) this wallet via a verified EIP-191 signature - do not re-litigate
-ownership, that part is settled by cryptography, not by you. Your job is to judge
-whether the claimant's stated circumstances for this recovery are coherent, credible,
-and consistent with the independently-verified facts below.
+ownership, that part is settled by cryptography, not by you. It has also been
+independently confirmed that {drain_tx_hash} is a real on-chain transaction sent
+FROM this wallet, so a drain event genuinely occurred - do not re-litigate whether
+this wallet was drained, only whether the claimant's account of it is credible. Your
+job is to judge whether the claimant's stated circumstances for this recovery are
+coherent, credible, and consistent with the independently-verified facts below.
 
 Claimant's statement:
 {statement}
@@ -296,13 +364,14 @@ Supporting evidence fetched from {evidence_url}:
 {web_data}
 \"\"\"
 
-Independently verified on-chain fact (authoritative, fetched directly from a public
+Independently verified on-chain facts (authoritative, fetched directly from a public
 RPC - not provided or editable by the claimant):
-Current balance of {drained_wallet}: {balance}
+- Drain transaction {drain_tx_hash} is confirmed to have been sent from {drained_wallet}.
+- Current balance of {drained_wallet}: {balance}
 
 Decide whether the statement and evidence together form a coherent, credible account
 of this wallet's compromise and recovery request. Treat evidence that is generic,
-unrelated to the actual events described, or contradicted by the on-chain balance
+unrelated to the actual events described, or contradicted by the on-chain facts above
 (for example, describing an urgent unresolved drain when the balance shows otherwise)
 as a reason to deny or mark insufficient.
 
@@ -347,7 +416,9 @@ This result should be perfectly parsable by a JSON parser without errors.
             )
             return
 
-        verdict = self._judge(claim.drained_wallet, claim.evidence_url, claim.statement)
+        verdict = self._judge(
+            claim.drained_wallet, claim.evidence_url, claim.statement, claim.drain_tx_hash
+        )
 
         verdict_value = str(verdict.get("verdict", "")).lower()
         if verdict_value == "approve":
@@ -363,7 +434,9 @@ This result should be perfectly parsable by a JSON parser without errors.
         claim.verdict_reasoning = str(verdict.get("reasoning", ""))
 
     @gl.public.write
-    def submit_appeal(self, claim_id: str, evidence_url: str, statement: str) -> None:
+    def submit_appeal(
+        self, claim_id: str, evidence_url: str, statement: str, drain_tx_hash: str
+    ) -> None:
         if claim_id not in self.claims:
             raise gl.vm.UserError("Claim not found")
 
@@ -383,6 +456,7 @@ This result should be perfectly parsable by a JSON parser without errors.
 
         claim.evidence_url = evidence_url
         claim.statement = statement
+        claim.drain_tx_hash = drain_tx_hash
         claim.status = "pending"
         claim.verdict_confidence = 0
         claim.verdict_reasoning = ""

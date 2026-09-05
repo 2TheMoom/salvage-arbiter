@@ -96,12 +96,14 @@ export function useSubmitClaim() {
       evidenceUrl,
       statement,
       signature,
+      drainTxHash,
       feePresetLevel,
     }: {
       drainedWallet: string;
       evidenceUrl: string;
       statement: string;
       signature: string;
+      drainTxHash: string;
       feePresetLevel?: FeePresetLevel;
     }) => {
       if (!contract) {
@@ -117,9 +119,10 @@ export function useSubmitClaim() {
         evidenceUrl,
         statement,
         signature,
+        drainTxHash,
         feePresetLevel ?? "standard"
       );
-      return contract.submitClaim(drainedWallet, evidenceUrl, statement, signature, feePreset, setPendingTxHash);
+      return contract.submitClaim(drainedWallet, evidenceUrl, statement, signature, drainTxHash, feePreset, setPendingTxHash);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["claims"] });
@@ -220,11 +223,13 @@ export function useSubmitAppeal() {
       claimId,
       evidenceUrl,
       statement,
+      drainTxHash,
       feePresetLevel,
     }: {
       claimId: string;
       evidenceUrl: string;
       statement: string;
+      drainTxHash: string;
       feePresetLevel?: FeePresetLevel;
     }) => {
       if (!contract) {
@@ -240,9 +245,10 @@ export function useSubmitAppeal() {
         claimId,
         evidenceUrl,
         statement,
+        drainTxHash,
         feePresetLevel ?? "standard"
       );
-      return contract.submitAppeal(claimId, evidenceUrl, statement, feePreset, setPendingTxHash);
+      return contract.submitAppeal(claimId, evidenceUrl, statement, drainTxHash, feePreset, setPendingTxHash);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["claims"] });

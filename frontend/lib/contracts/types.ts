@@ -13,6 +13,7 @@ export interface Claim {
   evidence_url: string;
   statement: string;
   signature: string;
+  drain_tx_hash: string;
   status: ClaimStatus;
   verdict_confidence: number;
   verdict_reasoning: string;

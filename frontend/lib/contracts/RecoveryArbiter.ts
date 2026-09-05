@@ -27,6 +27,7 @@ function decodeClaim(raw: any): Claim {
     evidence_url: String(obj.evidence_url ?? ""),
     statement: String(obj.statement ?? ""),
     signature: String(obj.signature ?? ""),
+    drain_tx_hash: String(obj.drain_tx_hash ?? ""),
     status: (obj.status ?? "pending") as Claim["status"],
     verdict_confidence: Number(obj.verdict_confidence ?? 0),
     verdict_reasoning: String(obj.verdict_reasoning ?? ""),
@@ -83,6 +84,7 @@ class RecoveryArbiter {
     evidenceUrl: string,
     statement: string,
     signature: string,
+    drainTxHash: string,
     level: FeePresetLevel = "standard"
   ): Promise<FeePresetEstimate | undefined> {
     return estimateWriteFeePreset(
@@ -90,7 +92,7 @@ class RecoveryArbiter {
       {
         address: this.contractAddress,
         functionName: "submit_claim",
-        args: [drainedWallet, evidenceUrl, statement, signature],
+        args: [drainedWallet, evidenceUrl, statement, signature, drainTxHash],
       },
       level,
     );
@@ -115,6 +117,7 @@ class RecoveryArbiter {
     claimId: string,
     evidenceUrl: string,
     statement: string,
+    drainTxHash: string,
     level: FeePresetLevel = "standard"
   ): Promise<FeePresetEstimate | undefined> {
     return estimateWriteFeePreset(
@@ -122,7 +125,7 @@ class RecoveryArbiter {
       {
         address: this.contractAddress,
         functionName: "submit_appeal",
-        args: [claimId, evidenceUrl, statement],
+        args: [claimId, evidenceUrl, statement, drainTxHash],
       },
       level,
     );
@@ -235,6 +238,7 @@ class RecoveryArbiter {
     evidenceUrl: string,
     statement: string,
     signature: string,
+    drainTxHash: string,
     feePreset?: FeePresetEstimate,
     onSubmitted?: (txHash: string) => void
   ): Promise<string> {
@@ -244,7 +248,7 @@ class RecoveryArbiter {
       txHash = await this.client.writeContract({
         address: this.contractAddress,
         functionName: "submit_claim",
-        args: [drainedWallet, evidenceUrl, statement, signature],
+        args: [drainedWallet, evidenceUrl, statement, signature, drainTxHash],
         value: BigInt(0),
         ...(fees ? { fees } : {}),
       });
@@ -320,6 +324,7 @@ class RecoveryArbiter {
     claimId: string,
     evidenceUrl: string,
     statement: string,
+    drainTxHash: string,
     feePreset?: FeePresetEstimate,
     onSubmitted?: (txHash: string) => void
   ): Promise<string> {
@@ -329,7 +334,7 @@ class RecoveryArbiter {
       appealTxHash = await this.client.writeContract({
         address: this.contractAddress,
         functionName: "submit_appeal",
-        args: [claimId, evidenceUrl, statement],
+        args: [claimId, evidenceUrl, statement, drainTxHash],
         value: BigInt(0),
         ...(fees ? { fees } : {}),
       });

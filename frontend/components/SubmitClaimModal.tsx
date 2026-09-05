@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, Loader2, Wallet, Link as LinkIcon, FileText, ShieldCheck, Copy, Check, AlertTriangle } from "lucide-react";
+import { Plus, Loader2, Wallet, Link as LinkIcon, FileText, ShieldCheck, Copy, Check, AlertTriangle, Hash } from "lucide-react";
 import { useSubmitClaim } from "@/lib/hooks/useRecoveryArbiter";
 import type { FeePresetLevel } from "@/lib/genlayer/fees";
 import { useWallet } from "@/lib/genlayer/wallet";
@@ -26,6 +26,7 @@ export function SubmitClaimModal() {
   const [drainedWallet, setDrainedWallet] = useState("");
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [statement, setStatement] = useState("");
+  const [drainTxHash, setDrainTxHash] = useState("");
   const [feePresetLevel, setFeePresetLevel] = useState<FeePresetLevel>("standard");
 
   // Signature step
@@ -39,6 +40,7 @@ export function SubmitClaimModal() {
     drainedWallet: "",
     evidenceUrl: "",
     statement: "",
+    drainTxHash: "",
   });
 
   const walletAddress = extractEthAddress(drainedWallet);
@@ -90,7 +92,7 @@ export function SubmitClaimModal() {
   };
 
   const validateForm = (): boolean => {
-    const newErrors = { drainedWallet: "", evidenceUrl: "", statement: "" };
+    const newErrors = { drainedWallet: "", evidenceUrl: "", statement: "", drainTxHash: "" };
 
     if (!drainedWallet.trim()) {
       newErrors.drainedWallet = "Drained wallet address is required";
@@ -110,6 +112,12 @@ export function SubmitClaimModal() {
 
     if (!statement.trim()) {
       newErrors.statement = "Please explain your claim";
+    }
+
+    if (!drainTxHash.trim()) {
+      newErrors.drainTxHash = "The transaction hash that drained this wallet is required";
+    } else if (!/^0x[0-9a-fA-F]{64}$/.test(drainTxHash.trim())) {
+      newErrors.drainTxHash = "Must be a 32-byte transaction hash (0x followed by 64 hex characters)";
     }
 
     setErrors(newErrors);
@@ -138,6 +146,7 @@ export function SubmitClaimModal() {
       evidenceUrl: evidenceUrl.trim(),
       statement: statement.trim(),
       signature,
+      drainTxHash: drainTxHash.trim(),
       feePresetLevel,
     });
   };
@@ -146,10 +155,11 @@ export function SubmitClaimModal() {
     setDrainedWallet("");
     setEvidenceUrl("");
     setStatement("");
+    setDrainTxHash("");
     setSignature("");
     setSignedForAddress(null);
     setSignError("");
-    setErrors({ drainedWallet: "", evidenceUrl: "", statement: "" });
+    setErrors({ drainedWallet: "", evidenceUrl: "", statement: "", drainTxHash: "" });
     clearPendingTx();
   };
 
@@ -207,6 +217,33 @@ export function SubmitClaimModal() {
             />
             {errors.drainedWallet && (
               <p className="text-xs text-destructive">{errors.drainedWallet}</p>
+            )}
+          </div>
+
+          {/* Drain Transaction Hash */}
+          <div className="space-y-2">
+            <Label htmlFor="drainTxHash" className="flex items-center gap-2">
+              <Hash className="w-4 h-4" />
+              Drain Transaction Hash
+            </Label>
+            <Input
+              id="drainTxHash"
+              type="text"
+              placeholder="0x... (the transaction that drained this wallet)"
+              value={drainTxHash}
+              onChange={(e) => {
+                setDrainTxHash(e.target.value);
+                setErrors({ ...errors, drainTxHash: "" });
+              }}
+              className={errors.drainTxHash ? "border-destructive" : ""}
+            />
+            <p className="text-xs text-muted-foreground">
+              Validators independently confirm this transaction was sent from the drained
+              wallet before considering your claim - citing a transaction that doesn&apos;t
+              match will get your claim denied automatically.
+            </p>
+            {errors.drainTxHash && (
+              <p className="text-xs text-destructive">{errors.drainTxHash}</p>
             )}
           </div>
 
