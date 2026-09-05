@@ -235,58 +235,77 @@ class RecoveryArbiter {
     evidenceUrl: string,
     statement: string,
     signature: string,
-    feePreset?: FeePresetEstimate
+    feePreset?: FeePresetEstimate,
+    onSubmitted?: (txHash: string) => void
   ): Promise<string> {
+    const fees = feePresetToTransactionFees(feePreset);
+    let txHash: string;
     try {
-      const fees = feePresetToTransactionFees(feePreset);
-      const txHash = await this.client.writeContract({
+      txHash = await this.client.writeContract({
         address: this.contractAddress,
         functionName: "submit_claim",
         args: [drainedWallet, evidenceUrl, statement, signature],
         value: BigInt(0),
         ...(fees ? { fees } : {}),
       });
+    } catch (error) {
+      console.error("Error submitting claim:", error);
+      throw new Error("Failed to submit the claim transaction. Please try again.");
+    }
 
+    onSubmitted?.(txHash);
+
+    try {
       await this.client.waitForTransactionReceipt({
         hash: txHash,
         status: "ACCEPTED" as any,
         retries: 24,
         interval: 5000,
       });
-
       return txHash;
     } catch (error) {
-      console.error("Error submitting claim:", error);
-      throw new Error("Failed to submit claim");
+      console.error("Error confirming claim transaction:", error);
+      throw new Error(
+        `Transaction ${txHash} was submitted but confirmation timed out. It may still complete - check the explorer.`
+      );
     }
   }
 
   /**
    * Trigger AI adjudication of a pending claim
    */
-  async adjudicate(claimId: string): Promise<string> {
+  async adjudicate(claimId: string, onSubmitted?: (txHash: string) => void): Promise<string> {
+    const feePreset = await this.estimateAdjudicateFees(claimId);
+    const fees = feePresetToTransactionFees(feePreset);
+    let txHash: string;
     try {
-      const feePreset = await this.estimateAdjudicateFees(claimId);
-      const fees = feePresetToTransactionFees(feePreset);
-      const txHash = await this.client.writeContract({
+      txHash = await this.client.writeContract({
         address: this.contractAddress,
         functionName: "adjudicate",
         args: [claimId],
         value: BigInt(0),
         ...(fees ? { fees } : {}),
       });
+    } catch (error) {
+      console.error("Error adjudicating claim:", error);
+      throw new Error("Failed to submit the adjudication transaction. Please try again.");
+    }
 
+    onSubmitted?.(txHash);
+
+    try {
       await this.client.waitForTransactionReceipt({
         hash: txHash,
         status: "ACCEPTED" as any,
         retries: 24,
         interval: 5000,
       });
-
       return txHash;
     } catch (error) {
-      console.error("Error adjudicating claim:", error);
-      throw new Error("Failed to adjudicate claim");
+      console.error("Error confirming adjudication transaction:", error);
+      throw new Error(
+        `Transaction ${txHash} was submitted but confirmation timed out. It may still complete - check the explorer.`
+      );
     }
   }
 
@@ -301,30 +320,41 @@ class RecoveryArbiter {
     claimId: string,
     evidenceUrl: string,
     statement: string,
-    feePreset?: FeePresetEstimate
+    feePreset?: FeePresetEstimate,
+    onSubmitted?: (txHash: string) => void
   ): Promise<string> {
+    const fees = feePresetToTransactionFees(feePreset);
+    let appealTxHash: string;
     try {
-      const fees = feePresetToTransactionFees(feePreset);
-      const appealTxHash = await this.client.writeContract({
+      appealTxHash = await this.client.writeContract({
         address: this.contractAddress,
         functionName: "submit_appeal",
         args: [claimId, evidenceUrl, statement],
         value: BigInt(0),
         ...(fees ? { fees } : {}),
       });
+    } catch (error) {
+      console.error("Error submitting appeal:", error);
+      throw new Error("Failed to submit the appeal transaction. Please try again.");
+    }
 
+    onSubmitted?.(appealTxHash);
+
+    try {
       await this.client.waitForTransactionReceipt({
         hash: appealTxHash,
         status: "ACCEPTED" as any,
         retries: 24,
         interval: 5000,
       });
-
-      return this.adjudicate(claimId);
     } catch (error) {
-      console.error("Error submitting appeal:", error);
-      throw new Error("Failed to submit appeal");
+      console.error("Error confirming appeal transaction:", error);
+      throw new Error(
+        `Appeal transaction ${appealTxHash} was submitted but confirmation timed out. It may still complete - check the explorer.`
+      );
     }
+
+    return this.adjudicate(claimId, onSubmitted);
   }
 }
 

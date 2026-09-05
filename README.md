@@ -27,19 +27,24 @@ identity. A wallet can only ever have one approved claim: `submit_claim` rejects
 submissions once one exists, and `adjudicate` re-checks the same condition again right
 before approving, so two claims filed for the same wallet while both are still pending
 can't both end up approved — whichever is adjudicated second is auto-denied, citing the
-first claim's ID, without even consulting the LLM.
+first claim's ID, without even consulting the LLM. That check is canonicalization-safe:
+`eth:0xABC...`, `0xabc...`, and `ETH:0xAbC...` all resolve to the same internal wallet
+key, so the guarantee can't be dodged by reformatting the address string.
 
 ## Live deployment
 Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **Contract:** [`0xc4e01803B993191f75e294B71F61a042e135F70F`](https://explorer-bradbury.genlayer.com/address/0xc4e01803B993191f75e294B71F61a042e135F70F)
-- Verified via 67 passing direct-mode tests (`pytest tests/direct/`), including one
-  that reproduces the exact competing-claim race: two claims filed for the same wallet
-  while both are pending, the first approved, then the second adjudicated — it's
-  auto-denied referencing the first claim's ID instead of being independently approved.
+- **Contract:** [`0x3C16fA8C61229B6FCDf87b31d475654e9DFea427`](https://explorer-bradbury.genlayer.com/address/0x3C16fA8C61229B6FCDf87b31d475654e9DFea427)
+- Verified via 71 passing direct-mode tests (`pytest tests/direct/`), including four
+  adversarial tests that reproduce a wallet-address canonicalization bypass: the same
+  real wallet submitted under different chain-prefix/case formatting must still be
+  recognized as one wallet by the duplicate-claim check, the competing-claim guard
+  (both at submission and at adjudication time), and `get_claims_for_wallet`.
 - Previous deployments (superseded, kept for history):
-  [signature + chain-check + first competing-claim pass](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C)
-  (that pass only checked for a competing claim at submission time, not at
-  adjudication time — the gap this deployment closes),
+  [competing-claim-at-adjudication fix, pre-canonicalization](https://explorer-bradbury.genlayer.com/address/0xc4e01803B993191f75e294B71F61a042e135F70F)
+  (approved_wallets/wallet_claims were keyed by the raw, unnormalized address string,
+  so the same wallet resubmitted with different formatting could dodge the
+  one-approved-claim-per-wallet guarantee — the gap this deployment closes),
+  [signature + chain-check + first competing-claim pass](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C),
   [appeal-path only](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc),
   [original, pre-appeal](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03).
 
@@ -60,6 +65,17 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   which encodes arguments according to the contract's own declared schema. This only
   affects CLI-based testing; the frontend (using `genlayer-js` directly, like any real
   user's browser would) was unaffected and is what the verification above used.
+- **The frontend now surfaces a transaction hash as soon as one exists, not only on
+  final success.** The original submit/adjudicate/appeal flows only returned a tx hash
+  after `waitForTransactionReceipt` fully resolved, so a slow or stuck confirmation
+  (this testnet's validator rounds can occasionally stall, per the section above) looked
+  identical to nothing having happened at all - no hash, no error, just a spinner. Each
+  write now reports its hash immediately after broadcast via a callback, the UI shows a
+  "view on explorer" link while waiting, and a confirmation timeout's error message
+  includes the hash so the transaction can still be checked instead of looking silently
+  dropped. Fee estimation (a pre-flight network call) is also now bounded to a 10s
+  timeout and falls back to default fees rather than being able to block the whole
+  submission indefinitely if it hangs.
 
 This started from GenLayer's official
 [project boilerplate](https://github.com/genlayerlabs/genlayer-project-boilerplate);

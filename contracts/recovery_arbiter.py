@@ -51,6 +51,17 @@ def _extract_address_hex(wallet: str) -> str:
     return w
 
 
+def _canonical_wallet_key(drained_wallet: str) -> str:
+    """Canonical form used for every internal key derived from a drained
+    wallet (claim_id, approved_wallets, wallet_claims). Without this, the
+    SAME real wallet submitted as "eth:0xABC..." vs "0xabc..." vs
+    "ETH:0xAbC..." would be treated as distinct wallets by raw string
+    equality, letting a second claim for an already-approved wallet slip
+    past the "one approved claim per wallet" check just by reformatting the
+    address string."""
+    return _extract_address_hex(drained_wallet)
+
+
 def _ec_inv(a: int, m: int) -> int:
     return pow(a, m - 2, m)
 
@@ -203,14 +214,15 @@ class RecoveryArbiter(gl.Contract):
         signature: str,
     ) -> str:
         sender = gl.message.sender_address
-        claim_id = f"{drained_wallet}_{sender.as_hex}".lower()
+        wallet_key = _canonical_wallet_key(drained_wallet)
+        claim_id = f"{wallet_key}_{sender.as_hex}".lower()
 
         if claim_id in self.claims:
             raise gl.vm.UserError(
                 "Claim already submitted for this wallet by this address"
             )
 
-        if drained_wallet in self.approved_wallets:
+        if wallet_key in self.approved_wallets:
             raise gl.vm.UserError(
                 "This wallet already has an approved recovery claim"
             )
@@ -234,7 +246,7 @@ class RecoveryArbiter(gl.Contract):
         )
         self.claims[claim_id] = claim
         self.claimant_claims.get_or_insert_default(sender).append(claim_id)
-        self.wallet_claims.get_or_insert_default(drained_wallet).append(claim_id)
+        self.wallet_claims.get_or_insert_default(wallet_key).append(claim_id)
         return claim_id
 
     def _fetch_chain_balance(self, drained_wallet: str) -> str:
@@ -324,7 +336,8 @@ This result should be perfectly parsable by a JSON parser without errors.
         if claim.status != "pending":
             raise gl.vm.UserError("Claim already adjudicated")
 
-        existing_approved_id = self.approved_wallets.get(claim.drained_wallet)
+        wallet_key = _canonical_wallet_key(claim.drained_wallet)
+        existing_approved_id = self.approved_wallets.get(wallet_key)
         if existing_approved_id is not None and existing_approved_id != claim.id:
             claim.status = "denied"
             claim.verdict_confidence = 100
@@ -339,7 +352,7 @@ This result should be perfectly parsable by a JSON parser without errors.
         verdict_value = str(verdict.get("verdict", "")).lower()
         if verdict_value == "approve":
             claim.status = "approved"
-            self.approved_wallets[claim.drained_wallet] = claim.id
+            self.approved_wallets[wallet_key] = claim.id
         elif verdict_value == "deny":
             claim.status = "denied"
         else:
@@ -390,9 +403,10 @@ This result should be perfectly parsable by a JSON parser without errors.
 
     @gl.public.view
     def get_claims_for_wallet(self, drained_wallet: str) -> list:
-        if drained_wallet not in self.wallet_claims:
+        wallet_key = _canonical_wallet_key(drained_wallet)
+        if wallet_key not in self.wallet_claims:
             return []
-        return [self.claims[claim_id] for claim_id in self.wallet_claims[drained_wallet]]
+        return [self.claims[claim_id] for claim_id in self.wallet_claims[wallet_key]]
 
     @gl.public.view
     def get_all_claims(self) -> dict:

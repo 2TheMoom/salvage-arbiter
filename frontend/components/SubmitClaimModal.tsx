@@ -5,6 +5,7 @@ import { Plus, Loader2, Wallet, Link as LinkIcon, FileText, ShieldCheck, Copy, C
 import { useSubmitClaim } from "@/lib/hooks/useRecoveryArbiter";
 import type { FeePresetLevel } from "@/lib/genlayer/fees";
 import { useWallet } from "@/lib/genlayer/wallet";
+import { getTxExplorerUrl } from "@/lib/genlayer/chains";
 import {
   buildOwnershipMessage,
   extractEthAddress,
@@ -19,7 +20,7 @@ import { Label } from "./ui/label";
 
 export function SubmitClaimModal() {
   const { isConnected, address, isLoading } = useWallet();
-  const { submitClaim, isSubmitting, isSuccess } = useSubmitClaim();
+  const { submitClaim, isSubmitting, isSuccess, pendingTxHash, clearPendingTx } = useSubmitClaim();
 
   const [isOpen, setIsOpen] = useState(false);
   const [drainedWallet, setDrainedWallet] = useState("");
@@ -149,6 +150,7 @@ export function SubmitClaimModal() {
     setSignedForAddress(null);
     setSignError("");
     setErrors({ drainedWallet: "", evidenceUrl: "", statement: "" });
+    clearPendingTx();
   };
 
   const handleOpenChange = (open: boolean) => {
@@ -345,31 +347,52 @@ export function SubmitClaimModal() {
           </div>
 
           {/* Submit Button */}
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="secondary"
-              className="flex-1"
-              onClick={() => setIsOpen(false)}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="gradient"
-              className="flex-1"
-              disabled={isSubmitting || !signature || accountChangedSinceSigning}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Submitting...
-                </>
-              ) : (
-                "Submit Claim"
-              )}
-            </Button>
+          <div className="space-y-2 pt-4">
+            {isSubmitting && (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+                {pendingTxHash ? (
+                  <>
+                    <span>Transaction submitted - waiting for validator confirmation...</span>
+                    <a
+                      href={getTxExplorerUrl(pendingTxHash)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 font-semibold text-accent hover:underline"
+                    >
+                      View on explorer
+                    </a>
+                  </>
+                ) : (
+                  <span>Preparing transaction...</span>
+                )}
+              </div>
+            )}
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={() => setIsOpen(false)}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="gradient"
+                className="flex-1"
+                disabled={isSubmitting || !signature || accountChangedSinceSigning}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  "Submit Claim"
+                )}
+              </Button>
+            </div>
           </div>
         </form>
       </DialogContent>

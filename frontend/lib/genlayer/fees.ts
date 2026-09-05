@@ -52,7 +52,15 @@ export function feePresetToTransactionFees(preset?: FeePresetEstimate) {
   return transactionFeesFromEstimate(preset?.estimate);
 }
 
-export async function estimateWriteFeePreset(
+// Fee estimation simulates the write against the network before the real
+// transaction is sent. If the network is slow/degraded, this simulate call
+// can hang far longer than a user will wait, with no error and no tx hash
+// ever appearing (the real write hasn't even been sent yet). A bounded
+// timeout means a stuck estimate degrades to "submit with default fees"
+// instead of silently blocking the whole submission forever.
+const FEE_ESTIMATE_TIMEOUT_MS = 10_000;
+
+async function estimateWriteFeePresetInner(
   client: any,
   request: {
     address: `0x${string}`;
@@ -60,12 +68,8 @@ export async function estimateWriteFeePreset(
     args: unknown[];
     value?: bigint;
   },
-  level: FeePresetLevel = "standard",
+  level: FeePresetLevel,
 ): Promise<FeePresetEstimate | undefined> {
-  if (typeof client?.estimateTransactionFees !== "function") {
-    return undefined;
-  }
-
   const options = PRESET_OPTIONS[level];
   const initialEstimate = await client.estimateTransactionFees(options);
   let estimate = initialEstimate;
@@ -92,4 +96,41 @@ export async function estimateWriteFeePreset(
     estimate,
     observed: estimate?.observed,
   };
+}
+
+export async function estimateWriteFeePreset(
+  client: any,
+  request: {
+    address: `0x${string}`;
+    functionName: string;
+    args: unknown[];
+    value?: bigint;
+  },
+  level: FeePresetLevel = "standard",
+): Promise<FeePresetEstimate | undefined> {
+  if (typeof client?.estimateTransactionFees !== "function") {
+    return undefined;
+  }
+
+  try {
+    return await new Promise<FeePresetEstimate | undefined>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("Fee estimation timed out")),
+        FEE_ESTIMATE_TIMEOUT_MS,
+      );
+      estimateWriteFeePresetInner(client, request, level).then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        },
+      );
+    });
+  } catch (err) {
+    console.warn("Fee estimation failed or timed out, submitting with default fees:", err);
+    return undefined;
+  }
 }

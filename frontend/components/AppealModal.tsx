@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Scale, Loader2, Link as LinkIcon, FileText } from "lucide-react";
 import { useSubmitAppeal } from "@/lib/hooks/useRecoveryArbiter";
 import type { FeePresetLevel } from "@/lib/genlayer/fees";
+import { getTxExplorerUrl } from "@/lib/genlayer/chains";
 import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Input } from "./ui/input";
@@ -18,7 +19,7 @@ interface AppealModalProps {
 }
 
 export function AppealModal({ claim, open, onOpenChange }: AppealModalProps) {
-  const { submitAppeal, isAppealing, isSuccess } = useSubmitAppeal();
+  const { submitAppeal, isAppealing, isSuccess, pendingTxHash, clearPendingTx } = useSubmitAppeal();
 
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [statement, setStatement] = useState("");
@@ -31,6 +32,7 @@ export function AppealModal({ claim, open, onOpenChange }: AppealModalProps) {
     setEvidenceUrl("");
     setStatement("");
     setErrors({ evidenceUrl: "", statement: "" });
+    clearPendingTx();
   };
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -176,26 +178,47 @@ export function AppealModal({ claim, open, onOpenChange }: AppealModalProps) {
             </div>
           </div>
 
-          <div className="flex gap-3 pt-4">
-            <Button
-              type="button"
-              variant="secondary"
-              className="flex-1"
-              onClick={() => handleOpenChange(false)}
-              disabled={isAppealing}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" variant="gradient" className="flex-1" disabled={isAppealing}>
-              {isAppealing ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Appealing...
-                </>
-              ) : (
-                "Submit Appeal"
-              )}
-            </Button>
+          <div className="space-y-2 pt-4">
+            {isAppealing && (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-muted/10 px-3 py-2 text-xs text-muted-foreground">
+                {pendingTxHash ? (
+                  <>
+                    <span>Transaction submitted - waiting for validator confirmation...</span>
+                    <a
+                      href={getTxExplorerUrl(pendingTxHash)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 font-semibold text-accent hover:underline"
+                    >
+                      View on explorer
+                    </a>
+                  </>
+                ) : (
+                  <span>Preparing transaction...</span>
+                )}
+              </div>
+            )}
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={() => handleOpenChange(false)}
+                disabled={isAppealing}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="gradient" className="flex-1" disabled={isAppealing}>
+                {isAppealing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Appealing...
+                  </>
+                ) : (
+                  "Submit Appeal"
+                )}
+              </Button>
+            </div>
           </div>
         </form>
       </DialogContent>

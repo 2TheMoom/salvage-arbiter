@@ -104,6 +104,122 @@ def test_submit_duplicate_claim_fails(direct_vm, direct_deploy, direct_alice):
         )
 
 
+def _reformatted_wallet() -> str:
+    """Same real wallet as WALLET, but different case and no chain prefix -
+    used to test that canonicalization treats these as the same wallet."""
+    return "0X" + DRAINED_WALLET_ADDRESS[2:].upper()
+
+
+def test_submit_duplicate_claim_with_reformatted_address_fails(
+    direct_vm, direct_deploy, direct_alice
+):
+    """Adversarial: reformatting the same wallet's address string (dropping
+    the chain prefix, changing case) must not let a claimant slip a second
+    claim for a wallet they've already claimed past the duplicate check.
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+    )
+
+    reformatted = _reformatted_wallet()
+    reformatted_signature = sign_ownership_message(DRAINED_WALLET_PRIVATE_KEY, reformatted, alice)
+
+    with direct_vm.expect_revert(
+        "Claim already submitted for this wallet by this address"
+    ):
+        contract.submit_claim(
+            reformatted, "https://evidence.example/proof2", "statement2", reformatted_signature
+        )
+
+
+def test_submit_claim_for_approved_wallet_blocked_via_reformatted_address(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """Adversarial: once a wallet has an approved claim, submitting again
+    under a differently-formatted (but identical) address string must still
+    be rejected at submission time, not treated as a "new" wallet.
+    """
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+    bob = to_hex(direct_bob)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+    assert contract.get_claim(claim_id).status == "approved"
+
+    reformatted = _reformatted_wallet()
+    direct_vm.sender = direct_bob
+    bob_signature = sign_ownership_message(DRAINED_WALLET_PRIVATE_KEY, reformatted, bob)
+
+    with direct_vm.expect_revert("This wallet already has an approved recovery claim"):
+        contract.submit_claim(
+            reformatted, "https://evidence.example/bob", "bob's statement", bob_signature
+        )
+
+
+def test_adjudicate_denies_reformatted_wallet_competing_claim(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """Adversarial: two claims for the same real wallet submitted under
+    different address formatting, both still pending when submitted, must
+    still trigger the competing-claim guard at adjudication time - the
+    canonicalization has to hold even when the exploit targets the
+    check-at-adjudication path specifically, not just check-at-submission.
+    """
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+    bob = to_hex(direct_bob)
+
+    direct_vm.sender = direct_alice
+    alice_claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/alice", "alice's statement", _valid_signature(alice)
+    )
+
+    reformatted = _reformatted_wallet()
+    direct_vm.sender = direct_bob
+    bob_signature = sign_ownership_message(DRAINED_WALLET_PRIVATE_KEY, reformatted, bob)
+    bob_claim_id = contract.submit_claim(
+        reformatted, "https://evidence.example/bob", "bob's statement", bob_signature
+    )
+
+    direct_vm.sender = direct_alice
+    _setup_verdict_mock(direct_vm, "alice", "approve", 90, "looks good")
+    contract.adjudicate(alice_claim_id)
+    assert contract.get_claim(alice_claim_id).status == "approved"
+
+    direct_vm.sender = direct_bob
+    _setup_verdict_mock(direct_vm, "bob", "approve", 90, "would also approve")
+    contract.adjudicate(bob_claim_id)
+
+    bob_claim = contract.get_claim(bob_claim_id)
+    assert bob_claim.status == "denied"
+    assert alice_claim_id in bob_claim.verdict_reasoning
+    assert contract.get_claim(alice_claim_id).status == "approved"
+
+
+def test_get_claims_for_wallet_is_format_agnostic(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice)
+    )
+
+    reformatted = _reformatted_wallet()
+    assert len(contract.get_claims_for_wallet(WALLET)) == 1
+    assert len(contract.get_claims_for_wallet(reformatted)) == 1
+    assert contract.get_claims_for_wallet(WALLET)[0].id == contract.get_claims_for_wallet(reformatted)[0].id
+
+
 def test_different_claimants_same_wallet(
     direct_vm, direct_deploy, direct_alice, direct_bob
 ):

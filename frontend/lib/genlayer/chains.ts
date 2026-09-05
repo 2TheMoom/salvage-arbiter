@@ -18,4 +18,9 @@ export function getGenLayerChain() {
   return CHAINS_BY_ID[chainId] ?? testnetBradbury;
 }
 
+/** Link to view a submitted transaction while it's still confirming. */
+export function getTxExplorerUrl(txHash: string): string {
+  return `https://explorer-bradbury.genlayer.com/tx/${txHash}`;
+}
+
 export { localnet, studionet, testnetBradbury };

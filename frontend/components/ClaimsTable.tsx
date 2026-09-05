@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Loader2, ShieldCheck, ShieldX, ShieldQuestion, Clock, AlertCircle, Scale } from "lucide-react";
 import { useClaims, useAdjudicate, useRecoveryArbiterContract } from "@/lib/hooks/useRecoveryArbiter";
 import { useWallet } from "@/lib/genlayer/wallet";
+import { getTxExplorerUrl } from "@/lib/genlayer/chains";
 import { error } from "@/lib/utils/toast";
 import { AddressDisplay } from "./AddressDisplay";
 import { AppealModal } from "./AppealModal";
@@ -16,7 +17,7 @@ export function ClaimsTable() {
   const contract = useRecoveryArbiterContract();
   const { data: claims, isLoading, isError } = useClaims();
   const { address, isConnected, isLoading: isWalletLoading } = useWallet();
-  const { adjudicate, isAdjudicating, adjudicatingClaimId } = useAdjudicate();
+  const { adjudicate, isAdjudicating, adjudicatingClaimId, pendingTxHash } = useAdjudicate();
 
   const handleAdjudicate = (claimId: string) => {
     if (!address) {
@@ -89,6 +90,7 @@ export function ClaimsTable() {
           isWalletLoading={isWalletLoading}
           onAdjudicate={handleAdjudicate}
           isAdjudicating={isAdjudicating && adjudicatingClaimId === claim.id}
+          pendingTxHash={adjudicatingClaimId === claim.id ? pendingTxHash : null}
         />
       ))}
     </div>
@@ -102,6 +104,7 @@ interface ClaimRowProps {
   isWalletLoading: boolean;
   onAdjudicate: (claimId: string) => void;
   isAdjudicating: boolean;
+  pendingTxHash: string | null;
 }
 
 function StatusBadge({ status }: { status: Claim["status"] }) {
@@ -155,7 +158,7 @@ function ConfidenceBar({ value, status }: { value: number; status: Claim["status
   );
 }
 
-function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjudicate, isAdjudicating }: ClaimRowProps) {
+function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjudicate, isAdjudicating, pendingTxHash }: ClaimRowProps) {
   const [isAppealOpen, setIsAppealOpen] = useState(false);
   const isClaimant = currentAddress?.toLowerCase() === claim.claimant?.toLowerCase();
   const canAdjudicate = isConnected && currentAddress && claim.status === "pending" && !isWalletLoading;
@@ -241,6 +244,26 @@ function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjud
       {claim.status === "pending" && !canAdjudicate && (
         <div className="mt-3 pt-3 border-t border-white/5">
           <span className="text-xs text-muted-foreground">Awaiting adjudication</span>
+        </div>
+      )}
+
+      {isAdjudicating && (
+        <div className="mt-3 pt-3 border-t border-white/5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          {pendingTxHash ? (
+            <>
+              <span>Transaction submitted - waiting for validator confirmation...</span>
+              <a
+                href={getTxExplorerUrl(pendingTxHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 font-semibold text-accent hover:underline"
+              >
+                View on explorer
+              </a>
+            </>
+          ) : (
+            <span>Preparing transaction...</span>
+          )}
         </div>
       )}
 

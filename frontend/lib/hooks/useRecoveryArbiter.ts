@@ -88,6 +88,7 @@ export function useSubmitClaim() {
   const { address } = useWallet();
   const queryClient = useQueryClient();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingTxHash, setPendingTxHash] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: async ({
@@ -110,6 +111,7 @@ export function useSubmitClaim() {
         throw new Error("Wallet not connected. Please connect your wallet to submit a claim.");
       }
       setIsSubmitting(true);
+      setPendingTxHash(null);
       const feePreset = await contract.estimateSubmitClaimFees(
         drainedWallet,
         evidenceUrl,
@@ -117,7 +119,7 @@ export function useSubmitClaim() {
         signature,
         feePresetLevel ?? "standard"
       );
-      return contract.submitClaim(drainedWallet, evidenceUrl, statement, signature, feePreset);
+      return contract.submitClaim(drainedWallet, evidenceUrl, statement, signature, feePreset, setPendingTxHash);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["claims"] });
@@ -139,6 +141,8 @@ export function useSubmitClaim() {
   return {
     ...mutation,
     isSubmitting,
+    pendingTxHash,
+    clearPendingTx: () => setPendingTxHash(null),
     submitClaim: mutation.mutate,
     submitClaimAsync: mutation.mutateAsync,
   };
@@ -153,6 +157,7 @@ export function useAdjudicate() {
   const queryClient = useQueryClient();
   const [isAdjudicating, setIsAdjudicating] = useState(false);
   const [adjudicatingClaimId, setAdjudicatingClaimId] = useState<string | null>(null);
+  const [pendingTxHash, setPendingTxHash] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: async (claimId: string) => {
@@ -164,7 +169,8 @@ export function useAdjudicate() {
       }
       setIsAdjudicating(true);
       setAdjudicatingClaimId(claimId);
-      return contract.adjudicate(claimId);
+      setPendingTxHash(null);
+      return contract.adjudicate(claimId, setPendingTxHash);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["claims"] });
@@ -189,6 +195,8 @@ export function useAdjudicate() {
     ...mutation,
     isAdjudicating,
     adjudicatingClaimId,
+    pendingTxHash,
+    clearPendingTx: () => setPendingTxHash(null),
     adjudicate: mutation.mutate,
     adjudicateAsync: mutation.mutateAsync,
   };
@@ -205,6 +213,7 @@ export function useSubmitAppeal() {
   const queryClient = useQueryClient();
   const [isAppealing, setIsAppealing] = useState(false);
   const [appealingClaimId, setAppealingClaimId] = useState<string | null>(null);
+  const [pendingTxHash, setPendingTxHash] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: async ({
@@ -226,13 +235,14 @@ export function useSubmitAppeal() {
       }
       setIsAppealing(true);
       setAppealingClaimId(claimId);
+      setPendingTxHash(null);
       const feePreset = await contract.estimateSubmitAppealFees(
         claimId,
         evidenceUrl,
         statement,
         feePresetLevel ?? "standard"
       );
-      return contract.submitAppeal(claimId, evidenceUrl, statement, feePreset);
+      return contract.submitAppeal(claimId, evidenceUrl, statement, feePreset, setPendingTxHash);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["claims"] });
@@ -257,6 +267,8 @@ export function useSubmitAppeal() {
     ...mutation,
     isAppealing,
     appealingClaimId,
+    pendingTxHash,
+    clearPendingTx: () => setPendingTxHash(null),
     submitAppeal: mutation.mutate,
     submitAppealAsync: mutation.mutateAsync,
   };
