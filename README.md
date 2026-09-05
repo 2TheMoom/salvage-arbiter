@@ -31,19 +31,27 @@ first claim's ID, without even consulting the LLM. That check is canonicalizatio
 `eth:0xABC...`, `0xabc...`, and `ETH:0xAbC...` all resolve to the same internal wallet
 key, so the guarantee can't be dodged by reformatting the address string.
 
+A signature only proves someone holds a wallet's *current* key, which covers
+approval/phishing drains (the victim still has their key but was tricked into signing
+away funds) but says nothing about whether a drain actually happened - it can't prove
+anything for actual key theft either, since only the thief could then sign at all. So
+`submit_claim` also takes a `drain_tx_hash`: the specific transaction the claimant says
+drained their wallet. `adjudicate` fetches that transaction and auto-denies, before ever
+consulting the LLM, if it doesn't exist or wasn't sent from the claimed wallet - the LLM
+only ever judges claims backed by a confirmed real drain, not bare citations.
+
 ## Live deployment
 Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **Contract:** [`0x3C16fA8C61229B6FCDf87b31d475654e9DFea427`](https://explorer-bradbury.genlayer.com/address/0x3C16fA8C61229B6FCDf87b31d475654e9DFea427)
-- Verified via 71 passing direct-mode tests (`pytest tests/direct/`), including four
-  adversarial tests that reproduce a wallet-address canonicalization bypass: the same
-  real wallet submitted under different chain-prefix/case formatting must still be
-  recognized as one wallet by the duplicate-claim check, the competing-claim guard
-  (both at submission and at adjudication time), and `get_claims_for_wallet`.
+- **Contract:** [`0x3788e6f8652B4feD422956f118df098b222EA440`](https://explorer-bradbury.genlayer.com/address/0x3788e6f8652B4feD422956f118df098b222EA440)
+- Verified via 73 passing direct-mode tests (`pytest tests/direct/`), including two new
+  ones proving the drain-transaction check works: a cited transaction that doesn't exist,
+  and a real transaction sent from a different address, both auto-deny without an LLM
+  call ever happening (the test registers no LLM mock, so a call would fail the test).
 - Previous deployments (superseded, kept for history):
-  [competing-claim-at-adjudication fix, pre-canonicalization](https://explorer-bradbury.genlayer.com/address/0xc4e01803B993191f75e294B71F61a042e135F70F)
-  (approved_wallets/wallet_claims were keyed by the raw, unnormalized address string,
-  so the same wallet resubmitted with different formatting could dodge the
-  one-approved-claim-per-wallet guarantee — the gap this deployment closes),
+  [wallet-address canonicalization fix, pre-drain-tx-check](https://explorer-bradbury.genlayer.com/address/0x3C16fA8C61229B6FCDf87b31d475654e9DFea427)
+  (adjudication only checked the LLM-fetched current balance, with no way to confirm a
+  drain event actually occurred - the gap this deployment closes),
+  [competing-claim-at-adjudication fix, pre-canonicalization](https://explorer-bradbury.genlayer.com/address/0xc4e01803B993191f75e294B71F61a042e135F70F),
   [signature + chain-check + first competing-claim pass](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C),
   [appeal-path only](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc),
   [original, pre-appeal](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03).
@@ -76,6 +84,13 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   dropped. Fee estimation (a pre-flight network call) is also now bounded to a 10s
   timeout and falls back to default fees rather than being able to block the whole
   submission indefinitely if it hangs.
+- **The balance and drain-transaction RPC calls use distinct query-string suffixes on
+  the same URL** (`?call=balance` vs `?call=tx`), purely so direct-mode tests can mock
+  them independently - the test harness matches mocks by URL pattern only, with no
+  visibility into the JSON-RPC method inside the POST body, so two different calls to
+  the identical bare URL couldn't otherwise be told apart. The suffix has no effect on
+  the real RPC call (JSON-RPC routing is entirely body-based; confirmed live against
+  the actual provider before relying on it).
 
 This started from GenLayer's official
 [project boilerplate](https://github.com/genlayerlabs/genlayer-project-boilerplate);
@@ -189,19 +204,22 @@ The app will be available at http://localhost:3000/.
 
 ## How RecoveryArbiter Works
 
-1. **`submit_claim(drained_wallet, evidence_url, statement, signature)`** — a claimant
-   registers a claim over an (external-chain) drained wallet address, with an EIP-191
-   signature proving control of it, plus public evidence and their case. Returns a
-   `claim_id`; fails if the signature doesn't recover to `drained_wallet`, or if that
-   wallet already has an approved claim.
+1. **`submit_claim(drained_wallet, evidence_url, statement, signature, drain_tx_hash)`**
+   — a claimant registers a claim over an (external-chain) drained wallet address, with
+   an EIP-191 signature proving control of it, the transaction they say drained it, plus
+   public evidence and their case. Returns a `claim_id`; fails if the signature doesn't
+   recover to `drained_wallet`, or if that wallet already has an approved claim.
 2. **`adjudicate(claim_id)`** — first re-checks whether `drained_wallet` already has a
    *different* approved claim (possible if two claims were filed for the same wallet
    while both were still pending) and auto-denies this one if so, without calling the
-   LLM. Otherwise fetches `evidence_url` live plus an authoritative on-chain balance for
-   `drained_wallet`, asks an LLM whether the evidence and statement are coherent given
-   that fact, and reaches multi-validator consensus on the verdict via the
-   leader/validator equivalence-principle pattern (validators agree on the `verdict`
-   field even if reasoning text differs). Sets `status` to `approved`, `denied`, or
+   LLM. Then fetches `drain_tx_hash` and auto-denies, again without calling the LLM, if
+   it doesn't exist or wasn't sent from `drained_wallet` - a claimant can't get an LLM
+   verdict on a drain that didn't happen. Only then does it fetch `evidence_url` live
+   plus an authoritative on-chain balance for `drained_wallet`, ask an LLM whether the
+   evidence and statement are coherent given those facts, and reach multi-validator
+   consensus on the verdict via the leader/validator equivalence-principle pattern
+   (validators agree on the `verdict` field even if reasoning text differs). Sets
+   `status` to `approved`, `denied`, or
    `insufficient`, plus a `confidence` (0–100) and `reasoning`.
 3. **`submit_appeal(claim_id, evidence_url, statement)`** — the original claimant only,
    and only on a `denied`/`insufficient` claim, can replace the evidence/statement and
