@@ -36,12 +36,22 @@ approval/phishing drains (the victim still has their key but was tricked into si
 away funds) but says nothing about whether a drain actually happened - it can't prove
 anything for actual key theft either, since only the thief could then sign at all. So
 `submit_claim` also takes a `drain_tx_hash`: the specific transaction the claimant says
-drained their wallet. `adjudicate` fetches that transaction and auto-denies, before ever
-consulting the LLM, if it doesn't exist or wasn't sent from the claimed wallet - the LLM
-only ever judges claims backed by a confirmed real drain, not bare citations. The
-evidence itself is authenticated the same way: if the fetched `evidence_url` content
-never mentions the claimed wallet address anywhere, the claim is auto-denied before the
-LLM ever sees it - a generic or copy-pasted URL isn't enough.
+drained their wallet. `adjudicate` fetches that transaction *and its receipt* and
+auto-denies, before ever consulting the LLM, unless it: exists, was sent from the
+claimed wallet, succeeded on-chain (didn't revert), and actually moved an asset (either
+non-zero native value or at least one emitted event log, so an ERC-20 transfer counts
+too - checking only the sender, as an earlier version of this contract did, let a
+claimant cite *any* transaction they'd ever sent, including a zero-value, failed, or
+unrelated one, as "proof" a drain happened). The LLM only ever judges claims backed by
+a confirmed, successful, value-moving drain, not a bare citation. The evidence itself
+is authenticated in two steps the same way: first, if the fetched `evidence_url`
+content never mentions the claimed wallet address anywhere, the claim is auto-denied -
+a generic or copy-pasted URL isn't enough. Second, it must also reference the specific
+incident - either the drain transaction's hash or its destination address - not just
+the wallet in general, so evidence that's merely *about* the wallet (but not about this
+particular drain) doesn't pass either. Both the destination address and the
+transaction's value/block are then handed to validators as authoritative on-chain
+facts alongside the evidence.
 
 The attestation is also a real, consumable precondition, not just stored metadata:
 [`contracts/recovery_release_vault.py`](contracts/recovery_release_vault.py) is a
@@ -54,16 +64,28 @@ independently deployable contract that proves the gating actually works.
 
 ## Live deployment
 Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **RecoveryArbiter:** [`0xC3880D78717bD940A238951fe8F4c8A5219F1A68`](https://explorer-bradbury.genlayer.com/address/0xC3880D78717bD940A238951fe8F4c8A5219F1A68)
-- **RecoveryReleaseVault** (example downstream consumer): [`0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05`](https://explorer-bradbury.genlayer.com/address/0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05)
-- Verified via 81 passing direct-mode tests (`pytest tests/direct/`) across both
-  contracts, covering the drain-transaction check, the evidence-authentication check,
-  and the vault's deposit/guard logic. The vault's cross-contract call to RecoveryArbiter
-  isn't reachable in direct mode (see "Design notes"), so the actual gating was verified
-  live instead: a claim was submitted and denied, funds were deposited into the vault for
-  it, and `release()` correctly read RecoveryArbiter's real on-chain status via
-  `gl.get_contract_at` and refused to pay out - proving the integration genuinely works,
-  not just that the two contracts compile against each other.
+- **RecoveryArbiter:** [`0x1eD87a20cD49a955Cc5686e9e18E1A592d3Cf194`](https://explorer-bradbury.genlayer.com/address/0x1eD87a20cD49a955Cc5686e9e18E1A592d3Cf194)
+- **RecoveryReleaseVault** (example downstream consumer): [`0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772`](https://explorer-bradbury.genlayer.com/address/0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772)
+- Verified via 86 passing direct-mode tests (`pytest tests/direct/`) across both
+  contracts, covering the drain-transaction check (including the reverted-tx and
+  no-asset-moved deny paths, and that a token-style drain with zero native value but a
+  logged event still passes), the two-step evidence-authentication check (wallet
+  mention, then incident-specific reference via tx hash or destination address), and
+  the vault's deposit/guard logic. `_fetch_tx_facts`'s parsing of `eth_getTransactionByHash`
+  and `eth_getTransactionReceipt` was also cross-checked against a real, current
+  transaction fetched live from the same public RPC this contract calls, confirming the
+  response shape assumptions (the `status`/`logs` fields) hold against production data,
+  not just hand-written mocks. The vault's cross-contract call to RecoveryArbiter isn't
+  reachable in direct mode (see "Design notes"), so the actual gating was verified live
+  against an earlier deployment of this same, unchanged vault code: a claim was
+  submitted and denied, funds were deposited into the vault for it, and `release()`
+  correctly read RecoveryArbiter's real on-chain status via `gl.get_contract_at` and
+  refused to pay out - proving the integration genuinely works, not just that the two
+  contracts compile against each other. `recovery_release_vault.py` itself is
+  byte-for-byte unchanged in this deployment (only the constructor's `arbiter_address`
+  points at the redeployed RecoveryArbiter above); a fresh end-to-end retest against the
+  new addresses was attempted but blocked by Bradbury RPC instability on deployment day
+  (rate limits and stale balance reads unrelated to this change - see "Design notes").
 - **Known limitation:** the *approved* payout path - `release()` actually transferring
   escrowed funds to a claimant - could not be verified live, because `emit_transfer`
   does not currently deliver value on Bradbury testnet at all, even from a minimal
@@ -76,6 +98,11 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   is fully verified (above), only the final on-chain transfer dispatch is currently
   blocked by GenLayer's own infrastructure.
 - Previous RecoveryArbiter deployments (superseded, kept for history):
+  [pre-asset-movement-check](https://explorer-bradbury.genlayer.com/address/0xC3880D78717bD940A238951fe8F4c8A5219F1A68)
+  (the drain-tx check confirmed only that a transaction with the cited hash existed and
+  was sent from the claimed wallet, not that it succeeded or moved any value - the gap
+  the current deployment closes, along with tying evidence to the specific incident
+  rather than just the wallet),
   [wallet-address canonicalization fix, pre-drain-tx-check](https://explorer-bradbury.genlayer.com/address/0x3C16fA8C61229B6FCDf87b31d475654e9DFea427)
   (adjudication only checked the LLM-fetched current balance, with no way to confirm a
   drain event actually occurred - the gap the current deployment closes),
@@ -83,6 +110,8 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   [signature + chain-check + first competing-claim pass](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C),
   [appeal-path only](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc),
   [original, pre-appeal](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03).
+  Previous RecoveryReleaseVault deployment (superseded, pointed at the pre-asset-movement-check
+  arbiter above): [`0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05`](https://explorer-bradbury.genlayer.com/address/0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05).
 
 ### Design notes
 - **Signature verification uses no external RPC.** An earlier version called a public
@@ -100,7 +129,21 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   from the literal command-line string's shape, unlike `genlayer-js`'s `writeContract`,
   which encodes arguments according to the contract's own declared schema. This only
   affects CLI-based testing; the frontend (using `genlayer-js` directly, like any real
-  user's browser would) was unaffected and is what the verification above used.
+  user's browser would) was unaffected and is what the verification above used. This
+  gotcha resurfaced on redeploy day: `genlayer call ... get_claims_by_address --args
+  <40-hex-char-address>` crashed inside the contract (`TypeError: cannot convert
+  'Address' object to bytes`) because the CLI auto-detected the address-shaped string
+  and encoded it as an `Address`, even though the method's parameter is typed `str` -
+  a reminder to always reach for `genlayer-js` first when a CLI-driven call misbehaves,
+  per [[feedback-genlayer-cli-vs-genlayer-js]] in memory.
+- **Bradbury was under heavy load on redeploy day (2026-09-06).** Both `genlayer
+  deploy` and `genlayer account send` intermittently returned `-32005 transaction gas
+  rate limit exceeded: node is at capacity`, and a freshly-funded throwaway test
+  account's balance was invisible to `eth_sendRawTransaction`'s fee check for over a
+  minute of retries despite `eth_getBalance` on the same RPC URL correctly showing the
+  funds - consistent with the RPC sitting in front of multiple backend nodes with
+  inconsistent state, not a problem in this contract. This blocked a fresh end-to-end
+  write-path retest against the redeployed addresses (see "Live deployment" above).
 - **The frontend now surfaces a transaction hash as soon as one exists, not only on
   final success.** The original submit/adjudicate/appeal flows only returned a tx hash
   after `waitForTransactionReceipt` fully resolved, so a slow or stuck confirmation

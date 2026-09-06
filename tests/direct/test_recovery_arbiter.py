@@ -14,6 +14,7 @@ from tests.direct.conftest import (
 CONTRACT = "contracts/recovery_arbiter.py"
 WALLET = f"eth:{DRAINED_WALLET_ADDRESS}"
 DRAIN_TX_HASH = "0x" + "ab" * 32
+DRAIN_DESTINATION = "0x" + "cd" * 20
 
 
 def _mock_chain_balance(vm, balance_wei: int = 0):
@@ -27,18 +28,53 @@ def _mock_chain_balance(vm, balance_wei: int = 0):
     )
 
 
-def _mock_drain_tx(vm, from_address: str = DRAINED_WALLET_ADDRESS, found: bool = True):
-    """Mocks eth_getTransactionByHash. `from_address` is the tx's sender -
-    set it to something other than the drained wallet to simulate a
-    mismatched citation, or pass found=False to simulate a nonexistent tx.
+def _mock_drain_tx(
+    vm,
+    from_address: str = DRAINED_WALLET_ADDRESS,
+    found: bool = True,
+    to_address: str = DRAIN_DESTINATION,
+    value_wei: int = 1,
+    status_success: bool = True,
+    log_count: int = 0,
+):
+    """Mocks eth_getTransactionByHash + eth_getTransactionReceipt together
+    (both are needed to authenticate a drain citation - see
+    RecoveryArbiter._fetch_tx_facts). Defaults describe a real, successful
+    transfer of native value; override to simulate a mismatched sender
+    (from_address), a nonexistent tx (found=False), a reverted tx
+    (status_success=False), or a no-op tx that moved nothing
+    (value_wei=0, log_count=0).
     """
-    result = None if not found else {"from": from_address, "hash": DRAIN_TX_HASH}
+    tx_result = None
+    if found:
+        tx_result = {
+            "from": from_address,
+            "to": to_address,
+            "value": hex(value_wei),
+            "blockNumber": hex(20738308),
+            "hash": DRAIN_TX_HASH,
+        }
     vm.mock_web(
         r"call=tx",
         {
             "method": "POST",
             "status": 200,
-            "body": json.dumps({"jsonrpc": "2.0", "id": 1, "result": result}),
+            "body": json.dumps({"jsonrpc": "2.0", "id": 1, "result": tx_result}),
+        },
+    )
+
+    receipt_result = None
+    if found:
+        receipt_result = {
+            "status": "0x1" if status_success else "0x0",
+            "logs": [{}] * log_count,
+        }
+    vm.mock_web(
+        r"call=receipt",
+        {
+            "method": "POST",
+            "status": 200,
+            "body": json.dumps({"jsonrpc": "2.0", "id": 1, "result": receipt_result}),
         },
     )
 
@@ -48,12 +84,17 @@ def _valid_signature(claimant_hex: str, wallet: str = WALLET) -> str:
 
 
 def _setup_verdict_mock(vm, evidence_body, verdict, confidence, reasoning, balance_wei=0):
-    # The contract requires evidence to mention the wallet address before
-    # ever consulting the LLM (authenticates it as being about THIS wallet),
-    # so every mocked evidence body includes it.
+    # The contract requires evidence to mention both the wallet address AND
+    # the specific drain transaction (or its destination) before ever
+    # consulting the LLM - this authenticates the evidence as being about
+    # THIS wallet and THIS incident, not the wallet in general - so every
+    # mocked evidence body includes both.
     vm.mock_web(
         r".*evidence\.example.*",
-        {"status": 200, "body": f"{evidence_body} (wallet: {DRAINED_WALLET_ADDRESS})"},
+        {
+            "status": 200,
+            "body": f"{evidence_body} (wallet: {DRAINED_WALLET_ADDRESS}, tx: {DRAIN_TX_HASH})",
+        },
     )
     _mock_drain_tx(vm)
     _mock_chain_balance(vm, balance_wei)
@@ -415,7 +456,7 @@ def test_adjudicate_includes_chain_balance_in_prompt(direct_vm, direct_deploy, d
 
     direct_vm.mock_web(
         r".*evidence\.example.*",
-        {"status": 200, "body": f"proof (wallet: {DRAINED_WALLET_ADDRESS})"},
+        {"status": 200, "body": f"proof (wallet: {DRAINED_WALLET_ADDRESS}, tx: {DRAIN_TX_HASH})"},
     )
     _mock_drain_tx(direct_vm)
     _mock_chain_balance(direct_vm, balance_wei=123456)
@@ -479,6 +520,154 @@ def test_adjudicate_denies_when_drain_tx_from_wrong_address(direct_vm, direct_de
     assert claim.status == "denied"
     assert DRAIN_TX_HASH in claim.verdict_reasoning
     assert claim.verdict_confidence == 100
+
+
+def test_adjudicate_denies_when_drain_tx_reverted(direct_vm, direct_deploy, direct_alice):
+    """Authoritative check: a cited transaction that exists and was sent
+    from the claimed wallet, but reverted on-chain, proves nothing actually
+    happened - it's auto-denied without consulting the LLM.
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+
+    direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
+    _mock_drain_tx(direct_vm, status_success=False)
+    _mock_chain_balance(direct_vm, balance_wei=0)
+
+    contract.adjudicate(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "denied"
+    assert "reverted" in claim.verdict_reasoning
+    assert claim.verdict_confidence == 100
+
+
+def test_adjudicate_denies_when_drain_tx_moved_nothing(direct_vm, direct_deploy, direct_alice):
+    """Authoritative check: a real, successful transaction from the claimed
+    wallet that transferred zero native value and emitted no events proves
+    no asset actually left the wallet - a claimant can't cite an unrelated
+    zero-value transaction (e.g. a self-send) as "proof" of a drain.
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+
+    direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
+    _mock_drain_tx(direct_vm, value_wei=0, log_count=0)
+    _mock_chain_balance(direct_vm, balance_wei=0)
+
+    contract.adjudicate(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "denied"
+    assert "no on-chain events" in claim.verdict_reasoning
+    assert claim.verdict_confidence == 100
+
+
+def test_adjudicate_accepts_token_style_drain_with_zero_native_value(
+    direct_vm, direct_deploy, direct_alice
+):
+    """A token drain (e.g. ERC-20) moves zero native value but emits a
+    Transfer event log - this must NOT be denied as "nothing moved" just
+    because native value_wei is 0, since token transfers are a common real
+    drain pattern.
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _mock_drain_tx(direct_vm, value_wei=0, log_count=1)
+    direct_vm.mock_web(
+        r".*evidence\.example.*",
+        {"status": 200, "body": f"proof (wallet: {DRAINED_WALLET_ADDRESS}, tx: {DRAIN_TX_HASH})"},
+    )
+    _mock_chain_balance(direct_vm, balance_wei=0)
+    direct_vm.mock_llm(
+        r".*adjudicating a cryptocurrency fund-recovery claim.*",
+        json.dumps({"verdict": "approve", "confidence": 90, "reasoning": "token drain confirmed"}),
+    )
+
+    contract.adjudicate(claim_id)
+
+    assert contract.get_claim(claim_id).status == "approved"
+
+
+def test_adjudicate_denies_when_evidence_does_not_reference_incident(
+    direct_vm, direct_deploy, direct_alice
+):
+    """Authoritative check: evidence that mentions the wallet but neither
+    the specific drain transaction nor its destination address can't be
+    authenticated as evidence for THIS incident - just naming the wallet
+    isn't enough on its own.
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/generic", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+
+    direct_vm.mock_web(
+        r".*evidence\.example.*",
+        {"status": 200, "body": f"Some generic page about {DRAINED_WALLET_ADDRESS}."},
+    )
+    _mock_drain_tx(direct_vm)
+    _mock_chain_balance(direct_vm, balance_wei=0)
+    # No LLM mock registered - if the contract called the LLM here, the
+    # test would fail with an unmocked-prompt error, proving it didn't.
+
+    contract.adjudicate(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "denied"
+    assert "cannot be authenticated as evidence for THIS incident" in claim.verdict_reasoning
+    assert claim.verdict_confidence == 100
+
+
+def test_adjudicate_accepts_evidence_referencing_destination_instead_of_tx_hash(
+    direct_vm, direct_deploy, direct_alice
+):
+    """Evidence naming the drain's destination address (e.g. a known
+    scammer address tracked by a scam database) authenticates the incident
+    just as well as quoting the raw transaction hash would.
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _mock_drain_tx(direct_vm)
+    direct_vm.mock_web(
+        r".*evidence\.example.*",
+        {
+            "status": 200,
+            "body": f"Funds from {DRAINED_WALLET_ADDRESS} sent to known scammer {DRAIN_DESTINATION}.",
+        },
+    )
+    _mock_chain_balance(direct_vm, balance_wei=0)
+    direct_vm.mock_llm(
+        r".*adjudicating a cryptocurrency fund-recovery claim.*",
+        json.dumps({"verdict": "approve", "confidence": 90, "reasoning": "destination matches scam db"}),
+    )
+
+    contract.adjudicate(claim_id)
+
+    assert contract.get_claim(claim_id).status == "approved"
 
 
 def test_adjudicate_denies_when_evidence_does_not_mention_wallet(

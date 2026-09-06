@@ -139,13 +139,20 @@ class RecoveryArbiter(gl.Contract):
 
     A claimant cryptographically proves control of a drained wallet via an
     EIP-191 signed message (verified through pure-Python ECDSA recovery,
-    not AI judgment) and cites the specific transaction that drained it,
-    which is independently confirmed on-chain before the LLM is ever
-    consulted - this covers approval/phishing drains, where the victim
-    still holds their key but was tricked into signing away funds, not
-    private-key theft (which no signature-based scheme can prove, since
-    only the thief could then sign anything). Validators then fetch
-    supporting evidence and authoritative on-chain facts and reach
+    not AI judgment) and cites the specific transaction that drained it.
+    Before the LLM is ever consulted, that citation is independently
+    confirmed on-chain: the transaction must be a real, successful
+    transaction sent FROM the claimed wallet that actually moved an asset
+    (non-zero native value, or at least one emitted event log, so a token
+    transfer counts too) - not merely a transaction hash that happens to
+    exist. The cited incident's destination, value, and block are then fed
+    to validators as authoritative facts alongside supporting evidence,
+    which must itself reference the specific transaction or its
+    destination (not just the wallet) to be authenticated as evidence for
+    THIS incident. This model covers approval/phishing drains, where the
+    victim still holds their key but was tricked into signing away funds,
+    not private-key theft (which no signature-based scheme can prove,
+    since only the thief could then sign anything). Validators reach
     consensus on a verdict via the equivalence principle. The result is an
     on-chain attestation that an off-chain recovery flow (e.g. Salvage's
     cross-chain rescue router) can require before releasing funds - one
@@ -282,15 +289,30 @@ class RecoveryArbiter(gl.Contract):
         except (ValueError, AttributeError, TypeError):
             return "unknown (RPC lookup failed)"
 
-    def _fetch_tx_from_address(self, tx_hash: str) -> str | None:
-        """Returns the on-chain transaction's 'from' address, canonicalized
-        the same way as a drained wallet (lowercase, no "0x") so it can be
-        compared directly against _extract_address_hex(drained_wallet).
-        Returns None if the transaction doesn't exist or the lookup fails.
-        Used to verify a claimant's cited drain transaction actually
-        happened, rather than trusting a citation the LLM can't
-        independently check."""
-        body = json.dumps(
+    def _fetch_tx_facts(self, tx_hash: str) -> dict | None:
+        """Fetches the cited drain transaction plus its receipt and returns
+        the on-chain facts needed to confirm it's a real, successful asset
+        movement out of the claimed wallet - not just that some transaction
+        with this hash exists. Returns None if the transaction doesn't
+        exist or either lookup fails.
+
+        Returns a dict with:
+        - from: sender address, canonicalized (lowercase, no "0x")
+        - to: recipient address, canonicalized, or None
+        - value_wei: native value transferred, as int
+        - block_number: int, or None
+        - status_success: bool - False means the transaction reverted, so
+          nothing it appears to do actually took effect on-chain
+        - log_count: number of event logs emitted (a non-empty log list is
+          consistent with a token Transfer even when native value_wei is 0,
+          which is the common case for an ERC-20 drain)
+
+        Checking only 'from' (as an earlier version of this contract did)
+        let a claimant cite ANY transaction they'd ever sent - including a
+        zero-value, failed, or unrelated one - as "proof" a drain happened,
+        without ever confirming value actually moved.
+        """
+        tx_body = json.dumps(
             {
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -298,19 +320,51 @@ class RecoveryArbiter(gl.Contract):
                 "params": [tx_hash],
             }
         )
+        receipt_body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "eth_getTransactionReceipt",
+                "params": [tx_hash],
+            }
+        )
         try:
             # The query suffix has no effect on the real RPC call (JSON-RPC
-            # routing is entirely body-based) - it only lets tests mock this
-            # call distinctly from _fetch_chain_balance's identical base URL.
-            resp = gl.nondet.web.post(
-                CHAIN_DATA_RPC_URL + "?call=tx", body=body, headers=RPC_HEADERS
+            # routing is entirely body-based) - it only lets tests mock each
+            # call distinctly, since they share a base URL.
+            tx_resp = gl.nondet.web.post(
+                CHAIN_DATA_RPC_URL + "?call=tx", body=tx_body, headers=RPC_HEADERS
             )
-            payload = json.loads((resp.body or b"").decode("utf-8"))
-            result = payload.get("result")
-            if not result:
+            tx_result = json.loads((tx_resp.body or b"").decode("utf-8")).get("result")
+            if not tx_result:
                 return None
-            from_address = result.get("from")
-            return _extract_address_hex(from_address) if from_address else None
+            from_address = tx_result.get("from")
+            if not from_address:
+                return None
+
+            receipt_resp = gl.nondet.web.post(
+                CHAIN_DATA_RPC_URL + "?call=receipt", body=receipt_body, headers=RPC_HEADERS
+            )
+            receipt_result = json.loads((receipt_resp.body or b"").decode("utf-8")).get("result")
+            if not receipt_result:
+                return None
+
+            to_address = tx_result.get("to")
+            value_hex = tx_result.get("value")
+            block_hex = tx_result.get("blockNumber")
+            status_hex = receipt_result.get("status")
+            logs = receipt_result.get("logs") or []
+
+            return {
+                "from": _extract_address_hex(from_address),
+                "to": _extract_address_hex(to_address) if to_address else None,
+                "value_wei": int(value_hex, 16) if value_hex else 0,
+                "block_number": int(block_hex, 16) if block_hex else None,
+                # Missing status (pre-Byzantium chains) is treated as success -
+                # only an explicit "0x0" counts as a revert.
+                "status_success": status_hex != "0x0",
+                "log_count": len(logs),
+            }
         except (ValueError, AttributeError, TypeError):
             return None
 
@@ -319,9 +373,9 @@ class RecoveryArbiter(gl.Contract):
     ) -> dict:
         def leader_fn() -> dict:
             wallet_hex = _extract_address_hex(drained_wallet)
-            tx_from = self._fetch_tx_from_address(drain_tx_hash)
+            facts = self._fetch_tx_facts(drain_tx_hash)
 
-            if tx_from is None:
+            if facts is None:
                 return {
                     "verdict": "deny",
                     "confidence": 100,
@@ -329,7 +383,7 @@ class RecoveryArbiter(gl.Contract):
                         f"Cited drain transaction {drain_tx_hash} could not be found on-chain."
                     ),
                 }
-            if tx_from != wallet_hex:
+            if facts["from"] != wallet_hex:
                 return {
                     "verdict": "deny",
                     "confidence": 100,
@@ -338,10 +392,30 @@ class RecoveryArbiter(gl.Contract):
                         "claimed wallet - it originated from a different address."
                     ),
                 }
+            if not facts["status_success"]:
+                return {
+                    "verdict": "deny",
+                    "confidence": 100,
+                    "reasoning": (
+                        f"Cited drain transaction {drain_tx_hash} reverted on-chain - "
+                        "nothing it attempted actually took effect, so no funds moved."
+                    ),
+                }
+            if facts["value_wei"] == 0 and facts["log_count"] == 0:
+                return {
+                    "verdict": "deny",
+                    "confidence": 100,
+                    "reasoning": (
+                        f"Cited drain transaction {drain_tx_hash} transferred no native "
+                        "value and emitted no on-chain events, so it does not show any "
+                        "asset actually leaving the wallet."
+                    ),
+                }
 
             web_data = gl.nondet.web.render(evidence_url, mode="text")
+            web_data_lower = web_data.lower()
 
-            if wallet_hex not in web_data.lower():
+            if wallet_hex not in web_data_lower:
                 return {
                     "verdict": "deny",
                     "confidence": 100,
@@ -352,7 +426,22 @@ class RecoveryArbiter(gl.Contract):
                     ),
                 }
 
+            tx_hash_lower = drain_tx_hash.lower().removeprefix("0x")
+            destination_mentioned = facts["to"] is not None and facts["to"] in web_data_lower
+            if tx_hash_lower not in web_data_lower and not destination_mentioned:
+                return {
+                    "verdict": "deny",
+                    "confidence": 100,
+                    "reasoning": (
+                        f"The evidence at {evidence_url} mentions the wallet but not the "
+                        "specific drain transaction or its destination address, so it "
+                        "cannot be authenticated as evidence for THIS incident rather "
+                        "than the wallet generally."
+                    ),
+                }
+
             balance = self._fetch_chain_balance(drained_wallet)
+            destination_display = f"0x{facts['to']}" if facts["to"] else "unknown (contract creation)"
 
             prompt = f"""
 You are adjudicating a cryptocurrency fund-recovery claim on Salvage Arbiter.
@@ -362,11 +451,13 @@ Drained/compromised wallet address: {drained_wallet}
 The claimant has already cryptographically proven they control (or retain signing
 access to) this wallet via a verified EIP-191 signature - do not re-litigate
 ownership, that part is settled by cryptography, not by you. It has also been
-independently confirmed that {drain_tx_hash} is a real on-chain transaction sent
-FROM this wallet, so a drain event genuinely occurred - do not re-litigate whether
-this wallet was drained, only whether the claimant's account of it is credible. Your
-job is to judge whether the claimant's stated circumstances for this recovery are
-coherent, credible, and consistent with the independently-verified facts below.
+independently confirmed that {drain_tx_hash} is a real, successful on-chain
+transaction sent FROM this wallet that actually moved an asset (native value or a
+logged event such as a token transfer), so a drain event genuinely occurred - do not
+re-litigate whether this wallet was drained, only whether the claimant's account of
+it is credible. Your job is to judge whether the claimant's stated circumstances for
+this recovery are coherent, credible, and consistent with the independently-verified
+facts below.
 
 Claimant's statement:
 {statement}
@@ -378,7 +469,11 @@ Supporting evidence fetched from {evidence_url}:
 
 Independently verified on-chain facts (authoritative, fetched directly from a public
 RPC - not provided or editable by the claimant):
-- Drain transaction {drain_tx_hash} is confirmed to have been sent from {drained_wallet}.
+- Drain transaction {drain_tx_hash} is confirmed sent from {drained_wallet}, succeeded
+  on-chain (did not revert), and moved an asset ({facts['value_wei']} wei native value,
+  {facts['log_count']} event log(s) emitted).
+- Destination of that transaction: {destination_display}
+- Block number: {facts['block_number']}
 - Current balance of {drained_wallet}: {balance}
 
 Decide whether the statement and evidence together form a coherent, credible account
