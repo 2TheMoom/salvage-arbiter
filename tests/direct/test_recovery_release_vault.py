@@ -50,3 +50,13 @@ def test_release_without_deposit_fails(direct_vm, direct_deploy, direct_alice):
 def test_is_released_defaults_false(direct_deploy):
     contract = direct_deploy(CONTRACT, ARBITER_PLACEHOLDER)
     assert contract.is_released("claim1") is False
+
+
+def test_released_asset_and_amount_default_empty(direct_deploy):
+    """release()'s new asset/amount binding is only reachable via a
+    cross-contract call (see module docstring), so it's verified live -
+    but the defaults for a claim that was never released are reachable
+    without one."""
+    contract = direct_deploy(CONTRACT, ARBITER_PLACEHOLDER)
+    assert contract.get_released_asset("claim1") == ""
+    assert contract.get_released_amount("claim1") == 0

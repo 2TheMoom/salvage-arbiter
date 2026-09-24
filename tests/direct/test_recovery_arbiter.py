@@ -16,6 +16,46 @@ WALLET = f"eth:{DRAINED_WALLET_ADDRESS}"
 DRAIN_TX_HASH = "0x" + "ab" * 32
 DRAIN_DESTINATION = "0x" + "cd" * 20
 
+# Must match RecoveryArbiter.TRANSFER_TOPIC exactly.
+TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+DRAIN_TOKEN = "0x" + "ee" * 20
+
+
+def _pad_topic(address: str) -> str:
+    return "0x" + "00" * 12 + address.lower().removeprefix("0x")
+
+
+def _transfer_log(
+    from_address: str = DRAINED_WALLET_ADDRESS,
+    to_address: str = DRAIN_DESTINATION,
+    token: str = DRAIN_TOKEN,
+    amount: int = 1_000_000,
+) -> dict:
+    """A genuine ERC-20 Transfer event log, decodable by
+    RecoveryArbiter._decode_transfer_out."""
+    return {
+        "address": token,
+        "topics": ["0x" + TRANSFER_TOPIC, _pad_topic(from_address), _pad_topic(to_address)],
+        "data": hex(amount),
+    }
+
+
+def _unrelated_log() -> dict:
+    """A log with no topics at all - e.g. a non-event or a malformed
+    entry. Must never be mistaken for a Transfer."""
+    return {"address": DRAIN_TOKEN, "topics": [], "data": "0x"}
+
+
+def _approval_log(owner: str = DRAINED_WALLET_ADDRESS) -> dict:
+    """A real Approval event (different topic0) from the wallet - emits a
+    log, but never moves anything. Must not be treated as a drain."""
+    approval_topic = "8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"
+    return {
+        "address": DRAIN_TOKEN,
+        "topics": ["0x" + approval_topic, _pad_topic(owner), _pad_topic(DRAIN_DESTINATION)],
+        "data": hex(999),
+    }
+
 
 def _mock_chain_balance(vm, balance_wei: int = 0):
     vm.mock_web(
@@ -35,15 +75,15 @@ def _mock_drain_tx(
     to_address: str = DRAIN_DESTINATION,
     value_wei: int = 1,
     status_success: bool = True,
-    log_count: int = 0,
+    logs: list | None = None,
 ):
     """Mocks eth_getTransactionByHash + eth_getTransactionReceipt together
     (both are needed to authenticate a drain citation - see
     RecoveryArbiter._fetch_tx_facts). Defaults describe a real, successful
     transfer of native value; override to simulate a mismatched sender
     (from_address), a nonexistent tx (found=False), a reverted tx
-    (status_success=False), or a no-op tx that moved nothing
-    (value_wei=0, log_count=0).
+    (status_success=False), a no-op tx that moved nothing (value_wei=0,
+    logs=[]), or a token-style drain (value_wei=0, logs=[_transfer_log()]).
     """
     tx_result = None
     if found:
@@ -67,7 +107,7 @@ def _mock_drain_tx(
     if found:
         receipt_result = {
             "status": "0x1" if status_success else "0x0",
-            "logs": [{}] * log_count,
+            "logs": logs if logs is not None else [],
         }
     vm.mock_web(
         r"call=receipt",
@@ -392,6 +432,10 @@ def test_adjudicate_approved(direct_vm, direct_deploy, direct_alice):
     assert claim.status == "approved"
     assert claim.verdict_confidence == 90
     assert claim.verdict_reasoning == "Signature matches the claimed wallet."
+    assert claim.drained_token == "native"
+    assert claim.drained_amount == 1
+    assert contract.get_claim_drained_asset(claim_id) == "native"
+    assert contract.get_claim_drained_amount(claim_id) == 1
 
 
 def test_adjudicate_denied(direct_vm, direct_deploy, direct_alice):
@@ -562,15 +606,76 @@ def test_adjudicate_denies_when_drain_tx_moved_nothing(direct_vm, direct_deploy,
     )
 
     direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
-    _mock_drain_tx(direct_vm, value_wei=0, log_count=0)
+    _mock_drain_tx(direct_vm, value_wei=0, logs=[])
     _mock_chain_balance(direct_vm, balance_wei=0)
 
     contract.adjudicate(claim_id)
 
     claim = contract.get_claim(claim_id)
     assert claim.status == "denied"
-    assert "no on-chain events" in claim.verdict_reasoning
+    assert "no genuine Transfer event" in claim.verdict_reasoning
     assert claim.verdict_confidence == 100
+    assert claim.drained_token == ""
+    assert claim.drained_amount == 0
+
+
+def test_adjudicate_denies_when_only_unrelated_logs_emitted(
+    direct_vm, direct_deploy, direct_alice
+):
+    """Adversarial: a transaction that emits logs - just not a Transfer
+    naming this wallet as sender (e.g. only an Approval, or a Transfer to
+    someone else's benefit) must NOT be treated as a drain just because
+    "some log fired." This is the exact gap an earlier version of this
+    contract had (log_count > 0 was sufficient on its own).
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+
+    direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
+    _mock_drain_tx(direct_vm, value_wei=0, logs=[_unrelated_log(), _approval_log()])
+    _mock_chain_balance(direct_vm, balance_wei=0)
+    # No LLM mock registered - if the contract called the LLM here, the
+    # test would fail with an unmocked-prompt error, proving it didn't.
+
+    contract.adjudicate(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "denied"
+    assert "no genuine Transfer event" in claim.verdict_reasoning
+    assert claim.drained_token == ""
+    assert claim.drained_amount == 0
+
+
+def test_adjudicate_denies_when_transfer_log_is_from_someone_else(
+    direct_vm, direct_deploy, direct_alice
+):
+    """Adversarial: a real Transfer event log is present, but its `from`
+    is a different address than the claimed wallet (e.g. the claimant cited
+    a transaction where THEY received tokens, or someone else's transfer
+    logged in the same tx). Must not be treated as this wallet's drain.
+    """
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+    alice = to_hex(direct_alice)
+
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+
+    direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
+    _mock_drain_tx(direct_vm, value_wei=0, logs=[_transfer_log(from_address=OTHER_ADDRESS)])
+    _mock_chain_balance(direct_vm, balance_wei=0)
+
+    contract.adjudicate(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "denied"
+    assert "no genuine Transfer event" in claim.verdict_reasoning
 
 
 def test_adjudicate_accepts_token_style_drain_with_zero_native_value(
@@ -588,7 +693,7 @@ def test_adjudicate_accepts_token_style_drain_with_zero_native_value(
     claim_id = contract.submit_claim(
         WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
     )
-    _mock_drain_tx(direct_vm, value_wei=0, log_count=1)
+    _mock_drain_tx(direct_vm, value_wei=0, logs=[_transfer_log(amount=1_000_000)])
     direct_vm.mock_web(
         r".*evidence\.example.*",
         {"status": 200, "body": f"proof (wallet: {DRAINED_WALLET_ADDRESS}, tx: {DRAIN_TX_HASH})"},
@@ -601,7 +706,10 @@ def test_adjudicate_accepts_token_style_drain_with_zero_native_value(
 
     contract.adjudicate(claim_id)
 
-    assert contract.get_claim(claim_id).status == "approved"
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "approved"
+    assert claim.drained_token == DRAIN_TOKEN.removeprefix("0x")
+    assert claim.drained_amount == 1_000_000
 
 
 def test_adjudicate_denies_when_evidence_does_not_reference_incident(
@@ -918,3 +1026,240 @@ def test_appeal_max_limit_reached_fails(direct_vm, direct_deploy, direct_alice):
 
     with direct_vm.expect_revert("Maximum of 3 appeals reached"):
         contract.submit_appeal(claim_id, "https://evidence.example/one-more", "please", DRAIN_TX_HASH)
+
+
+# ---------------------------------------------------------------------------
+# Challenge / resolve_challenge
+# ---------------------------------------------------------------------------
+
+def test_challenge_claim_freezes_approved_claim(direct_vm, direct_deploy, direct_alice, direct_bob):
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+    assert contract.get_claim(claim_id).status == "approved"
+
+    direct_vm.sender = direct_bob
+    reason = "This looks like a voluntary transfer, not a phishing drain."
+    contract.challenge_claim(claim_id, reason)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "challenged"
+    assert claim.challenge_reason == reason
+    assert claim.challenger == to_hex(direct_bob).lower().removeprefix("0x")
+    assert claim.challenge_count == 1
+    assert contract.get_claim_status(claim_id) == "challenged"
+
+
+def test_challenge_only_works_on_approved_claim(direct_vm, direct_deploy, direct_alice, direct_bob):
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert("Only an approved claim can be challenged"):
+        contract.challenge_claim(claim_id, "reason")
+
+
+def test_challenge_same_address_twice_fails(direct_vm, direct_deploy, direct_alice, direct_bob):
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    direct_vm.sender = direct_bob
+    contract.challenge_claim(claim_id, "first challenge")
+
+    direct_vm.sender = direct_alice
+    direct_vm.clear_mocks()
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "still looks good")
+    contract.resolve_challenge(claim_id)
+    assert contract.get_claim(claim_id).status == "approved"
+
+    direct_vm.sender = direct_bob
+    with direct_vm.expect_revert("This address has already challenged this claim"):
+        contract.challenge_claim(claim_id, "second challenge attempt")
+
+
+def test_challenge_max_limit_reached_fails(
+    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+):
+    from gltest.direct.loader import create_address
+
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+    dave = create_address("dave")
+    eve = create_address("eve")
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    for challenger in (direct_bob, direct_charlie, dave):
+        direct_vm.sender = challenger
+        contract.challenge_claim(claim_id, "reason")
+        direct_vm.sender = direct_alice
+        direct_vm.clear_mocks()
+        _setup_verdict_mock(direct_vm, "proof", "approve", 90, "still looks good")
+        contract.resolve_challenge(claim_id)
+
+    assert contract.get_claim(claim_id).challenge_count == 3
+
+    direct_vm.sender = eve
+    with direct_vm.expect_revert("Maximum of 3 challenges reached"):
+        contract.challenge_claim(claim_id, "one more")
+
+
+def test_challenge_unknown_claim_fails(direct_vm, direct_deploy, direct_bob):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_bob
+
+    with direct_vm.expect_revert("Claim not found"):
+        contract.challenge_claim("nonexistent", "reason")
+
+
+def test_resolve_challenge_overrules_back_to_approved(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    direct_vm.sender = direct_bob
+    contract.challenge_claim(claim_id, "reason")
+
+    direct_vm.sender = direct_alice
+    direct_vm.clear_mocks()
+    _setup_verdict_mock(direct_vm, "proof", "approve", 95, "confirmed again")
+    contract.resolve_challenge(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "approved"
+    assert claim.verdict_confidence == 95
+    assert contract.get_claim_status(claim_id) == "approved"
+
+
+def test_resolve_challenge_confirms_denial_and_frees_wallet(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    """If re-adjudication no longer approves, the wallet's approved-claim
+    slot must be freed - a challenged-and-overturned claim doesn't get to
+    permanently occupy it."""
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+    bob = to_hex(direct_bob)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    direct_vm.sender = direct_bob
+    contract.challenge_claim(claim_id, "this was a voluntary transfer, not a phishing drain")
+
+    direct_vm.sender = direct_alice
+    direct_vm.clear_mocks()
+    _setup_verdict_mock(direct_vm, "proof", "deny", 90, "evidence supports a voluntary transfer")
+    contract.resolve_challenge(claim_id)
+
+    claim = contract.get_claim(claim_id)
+    assert claim.status == "denied"
+
+    # The wallet must now be claimable again by a different claimant.
+    direct_vm.sender = direct_bob
+    new_signature = sign_ownership_message(DRAINED_WALLET_PRIVATE_KEY, WALLET, bob)
+    new_claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/bob", "bob's statement", new_signature, DRAIN_TX_HASH
+    )
+    assert new_claim_id != claim_id
+
+
+def test_resolve_challenge_by_non_claimant_fails(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    direct_vm.sender = direct_bob
+    contract.challenge_claim(claim_id, "reason")
+
+    with direct_vm.expect_revert("Only the claimant can resolve a challenge"):
+        contract.resolve_challenge(claim_id)
+
+
+def test_resolve_challenge_when_not_challenged_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    with direct_vm.expect_revert("This claim is not currently challenged"):
+        contract.resolve_challenge(claim_id)
+
+
+def test_resolve_challenge_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
+    contract = direct_deploy(CONTRACT)
+    direct_vm.sender = direct_alice
+
+    with direct_vm.expect_revert("Claim not found"):
+        contract.resolve_challenge("nonexistent")
+
+
+def test_submit_appeal_on_challenged_claim_fails(
+    direct_vm, direct_deploy, direct_alice, direct_bob
+):
+    contract = direct_deploy(CONTRACT)
+    alice = to_hex(direct_alice)
+
+    direct_vm.sender = direct_alice
+    claim_id = contract.submit_claim(
+        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
+    )
+    _setup_verdict_mock(direct_vm, "proof", "approve", 90, "looks good")
+    contract.adjudicate(claim_id)
+
+    direct_vm.sender = direct_bob
+    contract.challenge_claim(claim_id, "reason")
+
+    direct_vm.sender = direct_alice
+    with direct_vm.expect_revert(
+        "This claim is under challenge - use resolve_challenge, not submit_appeal"
+    ):
+        contract.submit_appeal(claim_id, "https://evidence.example/more", "more evidence", DRAIN_TX_HASH)
