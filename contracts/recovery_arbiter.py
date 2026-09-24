@@ -7,11 +7,8 @@ from genlayer import *
 MAX_APPEALS = 3
 MAX_CHALLENGES = 3
 
-# keccak256("Transfer(address,address,uint256)") - the standard ERC-20/721
-# Transfer event signature. Used to find a genuine asset movement in a
-# transaction's logs, rather than treating "any log was emitted" as proof
-# something moved (an Approval, an unrelated Transfer, a governance vote,
-# or any other log-emitting call would otherwise pass just as easily).
+# keccak256("Transfer(address,address,uint256)") - finds a genuine asset
+# movement, not just "a log was emitted" (which an Approval etc. would pass).
 TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
 # secp256k1 curve parameters, for pure-Python ECDSA public-key recovery.
@@ -20,14 +17,11 @@ _SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD036414
 _SECP256K1_GX = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
 _SECP256K1_GY = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
 
-# Chain-fact lookups aren't security-critical the way signature verification
-# is (the LLM's equivalence check only compares its final verdict string,
-# not this value byte-for-byte), so a public RPC via the equivalence
-# principle is fine here.
+# Not security-critical (only the LLM's verdict is equivalence-checked), so
+# a plain public RPC is fine here.
 CHAIN_DATA_RPC_URL = "https://ethereum-rpc.publicnode.com"
 
-# Public RPC gateways can reject requests without a browser-like User-Agent
-# as bot traffic (observed live: Cloudflare's did this).
+# A browser-like User-Agent avoids bot-blocking on some public RPC gateways.
 RPC_HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -66,11 +60,8 @@ def _extract_address_hex(wallet: str) -> str:
 
 
 def _decode_transfer_out(logs: list, wallet_hex: str) -> dict | None:
-    """Finds a genuine ERC-20/721 Transfer log whose `from` topic decodes
-    to wallet_hex; returns its token, amount (or tokenId for an NFT), and
-    destination, or None. Deliberately stricter than "any log exists" -
-    an Approval, an unrelated Transfer, or any other log-emitting call
-    must not count as evidence this wallet lost an asset."""
+    """Genuine ERC-20/721 Transfer log naming wallet_hex as sender, else
+    None - stricter than "any log exists" (an Approval must not count)."""
     for log in logs:
         topics = log.get("topics") or []
         if len(topics) < 3:
@@ -84,8 +75,7 @@ def _decode_transfer_out(logs: list, wallet_hex: str) -> dict | None:
         to_topic = str(topics[2]).lower().removeprefix("0x")
         destination = to_topic[-40:]
         token = str(log.get("address") or "").lower().removeprefix("0x")
-        if len(topics) >= 4:
-            # ERC-721: tokenId is the 3rd indexed topic, no data payload.
+        if len(topics) >= 4:  # ERC-721: tokenId is the 3rd indexed topic
             token_id = int(str(topics[3]), 16)
             return {"token": token, "amount": token_id, "to": destination}
         data = log.get("data") or "0x"
@@ -95,13 +85,9 @@ def _decode_transfer_out(logs: list, wallet_hex: str) -> dict | None:
 
 
 def _canonical_wallet_key(drained_wallet: str) -> str:
-    """Canonical form used for every internal key derived from a drained
-    wallet (claim_id, approved_wallets, wallet_claims). Without this, the
-    SAME real wallet submitted as "eth:0xABC..." vs "0xabc..." vs
-    "ETH:0xAbC..." would be treated as distinct wallets by raw string
-    equality, letting a second claim for an already-approved wallet slip
-    past the "one approved claim per wallet" check just by reformatting the
-    address string."""
+    """Canonical key for a drained wallet - without this, "eth:0xABC" vs
+    "0xabc" would be distinct wallets by raw string equality, letting a
+    reformatted address slip past the one-approved-claim-per-wallet check."""
     return _extract_address_hex(drained_wallet)
 
 
@@ -139,19 +125,10 @@ def _ec_mul(k: int, point):
 
 
 def _ecrecover(digest: bytes, v: int, r: int, s: int) -> bytes:
-    """Recovers the 20-byte Ethereum address that produced an ECDSA
-    signature over `digest`, via pure-Python secp256k1 arithmetic.
-
-    This is deliberately NOT delegated to an external RPC's ecrecover
-    precompile: live testing showed that calling out to a public RPC via
-    GenVM's equivalence principle for this specific check is unreliable -
-    different validators can land on different backend nodes behind a
-    provider's load balancer, and even a byte-for-byte deterministic
-    computation like ecrecover can come back inconsistent across them,
-    causing spurious consensus failures. A pure computation has no such
-    failure mode: every validator runs the identical bytecode on the
-    identical input and always agrees.
-    """
+    """Recovers the 20-byte signer address via pure-Python secp256k1 -
+    deliberately not an RPC ecrecover call, since different validators can
+    land on different backend nodes and disagree even on this deterministic
+    a computation, causing spurious consensus failures."""
     if r <= 0 or r >= _SECP256K1_N or s <= 0 or s >= _SECP256K1_N:
         raise ValueError("invalid signature component")
 
@@ -180,26 +157,22 @@ class RecoveryArbiter(gl.Contract):
     """Adjudicates fund-recovery claims for compromised wallets.
 
     A claimant proves wallet control via EIP-191 signature (pure-Python
-    ECDSA, not AI) and cites the drain transaction. Before the LLM is
-    consulted, that citation is independently confirmed on-chain: a real,
-    successful tx from the claimed wallet whose receipt contains a genuine
-    ERC-20/721 Transfer naming that wallet as sender (or non-zero native
-    value) - not just any tx hash, and not just any log-emitting tx. The
-    decoded token/amount/destination are bound to the claim, not supplied
-    by the claimant, so a downstream release can be checked against what
-    was actually verified. Evidence must reference that specific tx or
-    destination before the LLM judges whether the claimant's account
-    credibly shows the movement was *unauthorized* (phishing/approval
-    exploit) rather than voluntary - the movement itself is never in
+    ECDSA, not AI) and cites the drain tx. Before the LLM is consulted,
+    that citation is confirmed on-chain: a real, successful tx from the
+    claimed wallet with a genuine ERC-20/721 Transfer naming it as sender
+    (or non-zero native value) - not just any tx hash or log-emitting tx.
+    The decoded token/amount/destination bind to the claim, not supplied
+    by the claimant. Evidence must reference that tx/destination before
+    the LLM judges whether the movement was *unauthorized* (phishing/
+    approval exploit) vs. voluntary - occurrence itself is never in
     question by that point. Covers approval/phishing drains, not
-    private-key theft (unprovable by any signature scheme, since only the
+    private-key theft (unprovable by any signature scheme - only the
     thief could then sign). Validators reach consensus on both the
     decoded facts and the verdict via the equivalence principle.
 
     An approved claim isn't final: any address may challenge it once
-    (challenge_claim), freezing it against release until the claimant
-    triggers a fresh re-adjudication (resolve_challenge). Rate-limited per
-    address and capped (MAX_CHALLENGES) rather than bonded, since this
+    (challenge_claim), freezing it until the claimant re-adjudicates
+    (resolve_challenge) - rate-limited and capped, not bonded, since this
     contract never moves value itself.
 
     Result: an on-chain attestation an off-chain recovery flow can require
@@ -214,6 +187,11 @@ class RecoveryArbiter(gl.Contract):
 
     def __init__(self):
         pass
+
+    def _get_claim(self, claim_id: str) -> Claim:
+        if claim_id not in self.claims:
+            raise gl.vm.UserError("Claim not found")
+        return self.claims[claim_id]
 
     def _ownership_message(self, drained_wallet: str, claimant: Address) -> str:
         return (
@@ -279,19 +257,13 @@ class RecoveryArbiter(gl.Contract):
         claim_id = f"{wallet_key}_{sender.as_hex}".lower()
 
         if claim_id in self.claims:
-            raise gl.vm.UserError(
-                "Claim already submitted for this wallet by this address"
-            )
+            raise gl.vm.UserError("Claim already submitted for this wallet by this address")
 
         if wallet_key in self.approved_wallets:
-            raise gl.vm.UserError(
-                "This wallet already has an approved recovery claim"
-            )
+            raise gl.vm.UserError("This wallet already has an approved recovery claim")
 
         if not self._verify_ownership_signature(drained_wallet, sender, signature):
-            raise gl.vm.UserError(
-                "Signature does not prove control of the drained wallet"
-            )
+            raise gl.vm.UserError("Signature does not prove control of the drained wallet")
 
         claim = Claim(
             id=claim_id,
@@ -322,12 +294,7 @@ class RecoveryArbiter(gl.Contract):
             return "unknown (unrecognized wallet address format)"
 
         body = json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "eth_getBalance",
-                "params": ["0x" + wallet_hex, "latest"],
-            }
+            {"jsonrpc": "2.0", "id": 1, "method": "eth_getBalance", "params": ["0x" + wallet_hex, "latest"]}
         )
         try:
             resp = gl.nondet.web.post(
@@ -342,34 +309,18 @@ class RecoveryArbiter(gl.Contract):
             return "unknown (RPC lookup failed)"
 
     def _fetch_tx_facts(self, tx_hash: str) -> dict | None:
-        """Fetches the cited drain tx + receipt. Returns None if it
-        doesn't exist or a lookup fails, else a dict: from/to (hex, no
-        "0x"), value_wei, block_number, status_success (False = reverted),
-        and token_transfer - the decoded {"token","amount","to"} of a
-        genuine Transfer naming this tx's sender, or None. token_transfer
-        is deliberately not just "logs exist" - an Approval or an
-        unrelated Transfer must not count as this wallet losing an asset.
-        """
+        """Fetches the cited drain tx + receipt; None if not found/failed,
+        else from/to/value_wei/block_number/status_success plus
+        token_transfer (decoded genuine Transfer naming the sender, not
+        just "logs exist")."""
         tx_body = json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "eth_getTransactionByHash",
-                "params": [tx_hash],
-            }
+            {"jsonrpc": "2.0", "id": 1, "method": "eth_getTransactionByHash", "params": [tx_hash]}
         )
         receipt_body = json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "eth_getTransactionReceipt",
-                "params": [tx_hash],
-            }
+            {"jsonrpc": "2.0", "id": 1, "method": "eth_getTransactionReceipt", "params": [tx_hash]}
         )
         try:
-            # The query suffix has no effect on the real RPC call (JSON-RPC
-            # routing is entirely body-based) - it only lets tests mock each
-            # call distinctly, since they share a base URL.
+            # Query suffix is inert on the real RPC (body-routed); lets tests mock each call distinctly.
             tx_resp = gl.nondet.web.post(
                 CHAIN_DATA_RPC_URL + "?call=tx", body=tx_body, headers=RPC_HEADERS
             )
@@ -399,9 +350,7 @@ class RecoveryArbiter(gl.Contract):
                 "to": _extract_address_hex(to_address) if to_address else None,
                 "value_wei": int(value_hex, 16) if value_hex else 0,
                 "block_number": int(block_hex, 16) if block_hex else None,
-                # Missing status (pre-Byzantium chains) is treated as success -
-                # only an explicit "0x0" counts as a revert.
-                "status_success": status_hex != "0x0",
+                "status_success": status_hex != "0x0",  # missing status (pre-Byzantium) = success
                 "token_transfer": _decode_transfer_out(logs, sender_hex),
             }
         except (ValueError, AttributeError, TypeError):
@@ -410,44 +359,32 @@ class RecoveryArbiter(gl.Contract):
     def _judge(
         self, drained_wallet: str, evidence_url: str, statement: str, drain_tx_hash: str
     ) -> dict:
+        def _deny(reason: str) -> dict:
+            return {"verdict": "deny", "confidence": 100, "token": "", "amount": 0, "reasoning": reason}
+
         def leader_fn() -> dict:
             wallet_hex = _extract_address_hex(drained_wallet)
             facts = self._fetch_tx_facts(drain_tx_hash)
 
             if facts is None:
-                return {
-                    "verdict": "deny", "confidence": 100, "token": "", "amount": 0,
-                    "reasoning": (
-                        f"Cited drain transaction {drain_tx_hash} could not be found on-chain."
-                    ),
-                }
+                return _deny(f"Cited drain transaction {drain_tx_hash} could not be found on-chain.")
             if facts["from"] != wallet_hex:
-                return {
-                    "verdict": "deny", "confidence": 100, "token": "", "amount": 0,
-                    "reasoning": (
-                        f"Cited drain transaction {drain_tx_hash} was not sent from the "
-                        "claimed wallet - it originated from a different address."
-                    ),
-                }
+                return _deny(
+                    f"Cited drain transaction {drain_tx_hash} was not sent from the "
+                    "claimed wallet - it originated from a different address."
+                )
             if not facts["status_success"]:
-                return {
-                    "verdict": "deny", "confidence": 100, "token": "", "amount": 0,
-                    "reasoning": (
-                        f"Cited drain transaction {drain_tx_hash} reverted on-chain - "
-                        "nothing it attempted actually took effect, so no funds moved."
-                    ),
-                }
+                return _deny(
+                    f"Cited drain transaction {drain_tx_hash} reverted on-chain - "
+                    "nothing it attempted actually took effect, so no funds moved."
+                )
             transfer = facts["token_transfer"]
             if facts["value_wei"] == 0 and transfer is None:
-                return {
-                    "verdict": "deny", "confidence": 100, "token": "", "amount": 0,
-                    "reasoning": (
-                        f"Cited drain transaction {drain_tx_hash} transferred no native "
-                        "value and its logs contain no genuine Transfer event naming this "
-                        "wallet as sender, so it does not show any asset actually leaving "
-                        "the wallet."
-                    ),
-                }
+                return _deny(
+                    f"Cited drain transaction {drain_tx_hash} transferred no native value "
+                    "and its logs contain no genuine Transfer event naming this wallet as "
+                    "sender, so it does not show any asset actually leaving the wallet."
+                )
 
             if transfer is not None:
                 drained_token, drained_amount = transfer["token"], transfer["amount"]
@@ -460,27 +397,21 @@ class RecoveryArbiter(gl.Contract):
             web_data_lower = web_data.lower()
 
             if wallet_hex not in web_data_lower:
-                return {
-                    "verdict": "deny", "confidence": 100, "token": "", "amount": 0,
-                    "reasoning": (
-                        f"The evidence at {evidence_url} does not mention the claimed "
-                        "wallet address anywhere, so it cannot be authenticated as "
-                        "evidence for this specific wallet."
-                    ),
-                }
+                return _deny(
+                    f"The evidence at {evidence_url} does not mention the claimed wallet "
+                    "address anywhere, so it cannot be authenticated as evidence for this "
+                    "specific wallet."
+                )
 
             tx_hash_lower = drain_tx_hash.lower().removeprefix("0x")
             destination_mentioned = destination_hex is not None and destination_hex in web_data_lower
             if tx_hash_lower not in web_data_lower and not destination_mentioned:
-                return {
-                    "verdict": "deny", "confidence": 100, "token": "", "amount": 0,
-                    "reasoning": (
-                        f"The evidence at {evidence_url} mentions the wallet but not the "
-                        "specific drain transaction or its destination address, so it "
-                        "cannot be authenticated as evidence for THIS incident rather "
-                        "than the wallet generally."
-                    ),
-                }
+                return _deny(
+                    f"The evidence at {evidence_url} mentions the wallet but not the "
+                    "specific drain transaction or its destination address, so it cannot "
+                    "be authenticated as evidence for THIS incident rather than the "
+                    "wallet generally."
+                )
 
             balance = self._fetch_chain_balance(drained_wallet)
             destination_display = f"0x{destination_hex}" if destination_hex else "unknown (contract creation)"
@@ -489,27 +420,23 @@ class RecoveryArbiter(gl.Contract):
                 else f"{drained_amount} base units of token 0x{drained_token}"
             )
 
-            prompt = f"""
-You are adjudicating a cryptocurrency fund-recovery claim on Salvage Arbiter.
+            prompt = f"""You are adjudicating a cryptocurrency fund-recovery claim on Salvage Arbiter.
 
-Drained/compromised wallet address: {drained_wallet}
+Drained/compromised wallet: {drained_wallet}
 
-The claimant has already cryptographically proven they control (or retain signing
-access to) this wallet via a verified EIP-191 signature - do not re-litigate
-ownership, that part is settled by cryptography, not by you.
+The claimant already cryptographically proved control of this wallet via a verified
+EIP-191 signature - don't re-litigate ownership.
 
-It has been independently confirmed, directly from a public RPC and not provided or
-editable by the claimant, that {drain_tx_hash} is a real, successful transaction sent
-FROM this wallet that moved {asset_display} to {destination_display}. That specific
-movement is a settled fact - do not re-litigate whether it happened.
+Independently confirmed on-chain (not provided or editable by the claimant): {drain_tx_hash}
+is a real, successful tx sent FROM this wallet that moved {asset_display} to
+{destination_display}, at block {facts['block_number']}. That movement is a settled fact.
+Current balance of {drained_wallet}: {balance}.
 
-What has NOT been established is whether this movement was authorized by the
-wallet's owner. The wallet's own key-holder signing this exact transaction is
-consistent with either: (a) an ordinary voluntary transfer, swap, or payment they
-meant to make, or (b) a phishing or malicious-approval attack that tricked them into
-signing away funds without realizing it. Your job is to judge which of these the
-claimant's statement and evidence actually support - not whether a transaction
-occurred (already confirmed above), but whether it was unauthorized.
+NOT yet established: whether this movement was authorized. The key-holder signing this
+exact tx is consistent with either (a) an ordinary voluntary transfer/swap/payment, or
+(b) a phishing or malicious-approval attack that tricked them into signing away funds.
+Judge which the claimant's statement and evidence support - not whether the tx happened
+(already settled), but whether it was unauthorized.
 
 Claimant's statement:
 {statement}
@@ -519,31 +446,16 @@ Supporting evidence fetched from {evidence_url}:
 {web_data}
 \"\"\"
 
-Independently verified on-chain facts (authoritative, fetched directly from a public
-RPC - not provided or editable by the claimant):
-- {drain_tx_hash}: confirmed sent from {drained_wallet}, succeeded on-chain (did not
-  revert), and moved {asset_display} to {destination_display}.
-- Block number: {facts['block_number']}
-- Current balance of {drained_wallet}: {balance}
-
 Approve only if the statement and evidence together credibly describe this specific
 movement as unauthorized (e.g. a phishing site, a malicious token approval, a fake
 "support" request) - not merely that the wallet lost funds. Treat evidence that is
-generic, unrelated to this specific transaction, consistent with an ordinary
-voluntary transfer, or contradicted by the on-chain facts above (for example,
-describing an urgent unresolved drain when the balance shows otherwise) as a reason
-to deny or mark insufficient.
+generic, unrelated to this transaction, consistent with a voluntary transfer, or
+contradicted by the facts above as a reason to deny or mark insufficient.
 
-Respond in JSON:
-{{
-    "verdict": str,  // "approve", "deny", or "insufficient"
-    "confidence": int,  // 0-100
-    "reasoning": str  // one or two sentences
-}}
-It is mandatory that you respond only using the JSON format above,
-nothing else. Don't include any other words or characters,
-your output must be only JSON without any formatting prefix or suffix.
-This result should be perfectly parsable by a JSON parser without errors.
+Respond in JSON only, perfectly parsable, no other text:
+{{"verdict": str, "confidence": int, "reasoning": str}}
+verdict is "approve", "deny", or "insufficient"; confidence is 0-100; reasoning is one
+or two sentences.
 """
             result = gl.nondet.exec_prompt(prompt, response_format="json")
             result["token"] = drained_token
@@ -555,9 +467,8 @@ This result should be perfectly parsable by a JSON parser without errors.
                 return False
             my_result = leader_fn()
             theirs = leaders_res.calldata
-            # token/amount are decoded on-chain facts, not LLM output - every
-            # honest validator derives the same values, so requiring them to
-            # match too stops a leader lying about what was verified.
+            # token/amount are on-chain facts, not LLM output - matching them
+            # too stops a leader lying about what was verified.
             return (
                 my_result["verdict"] == theirs["verdict"]
                 and my_result["token"] == theirs["token"]
@@ -566,12 +477,25 @@ This result should be perfectly parsable by a JSON parser without errors.
 
         return gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
+    def _apply_verdict(self, claim: Claim, wallet_key: str, verdict: dict, clear_wallet_on_reject: bool = False) -> None:
+        verdict_value = str(verdict.get("verdict", "")).lower()
+        if verdict_value == "approve":
+            claim.status = "approved"
+            self.approved_wallets[wallet_key] = claim.id
+        else:
+            claim.status = "denied" if verdict_value == "deny" else "insufficient"
+            if clear_wallet_on_reject and self.approved_wallets.get(wallet_key) == claim.id:
+                del self.approved_wallets[wallet_key]
+
+        confidence = int(verdict.get("confidence", 0))
+        claim.verdict_confidence = max(0, min(100, confidence))
+        claim.verdict_reasoning = str(verdict.get("reasoning", ""))
+        claim.drained_token = str(verdict.get("token", ""))
+        claim.drained_amount = int(verdict.get("amount", 0))
+
     @gl.public.write
     def adjudicate(self, claim_id: str) -> None:
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-
-        claim = self.claims[claim_id]
+        claim = self._get_claim(claim_id)
         if claim.status != "pending":
             raise gl.vm.UserError("Claim already adjudicated")
 
@@ -589,37 +513,15 @@ This result should be perfectly parsable by a JSON parser without errors.
         verdict = self._judge(
             claim.drained_wallet, claim.evidence_url, claim.statement, claim.drain_tx_hash
         )
-
-        verdict_value = str(verdict.get("verdict", "")).lower()
-        if verdict_value == "approve":
-            claim.status = "approved"
-            self.approved_wallets[wallet_key] = claim.id
-        elif verdict_value == "deny":
-            claim.status = "denied"
-        else:
-            claim.status = "insufficient"
-
-        confidence = int(verdict.get("confidence", 0))
-        claim.verdict_confidence = max(0, min(100, confidence))
-        claim.verdict_reasoning = str(verdict.get("reasoning", ""))
-        claim.drained_token = str(verdict.get("token", ""))
-        claim.drained_amount = int(verdict.get("amount", 0))
+        self._apply_verdict(claim, wallet_key, verdict)
 
     @gl.public.write
     def challenge_claim(self, claim_id: str, reason: str) -> None:
-        """Freezes an approved claim pending re-adjudication. Permissionless
-        - anyone who spots a wrongly-approved claim (e.g. a "drain" that
-        was really a voluntary transfer) can stop a release before it
-        happens. Rate-limited per address and capped (MAX_CHALLENGES)
-        rather than bonded, since this contract never moves value itself.
-        A "challenged" status is no longer "approved", which alone blocks
-        RecoveryReleaseVault's release() without this contract needing to
-        know anything about what sits downstream.
-        """
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-
-        claim = self.claims[claim_id]
+        """Permissionless: freezes an approved claim pending re-adjudication
+        (e.g. a "drain" that was really voluntary). Rate-limited/capped, not
+        bonded, since this contract never moves value. "challenged" !=
+        "approved", which alone blocks RecoveryReleaseVault.release()."""
+        claim = self._get_claim(claim_id)
         if claim.status != "approved":
             raise gl.vm.UserError("Only an approved claim can be challenged")
 
@@ -639,19 +541,11 @@ This result should be perfectly parsable by a JSON parser without errors.
 
     @gl.public.write
     def resolve_challenge(self, claim_id: str) -> None:
-        """Re-runs full validator consensus on a challenged claim, exactly
-        as the first adjudication did. Claimant-only - they already proved
-        wallet control at submission. If consensus still approves, the
-        challenge is overruled and status returns to "approved"; if not,
-        the wallet's approved-claim slot is freed for a new claim. Honest
-        limitation: no cooldown before resolving, so this doesn't force a
-        cooling-off period the way a real dispute process might - though a
-        claimant expecting to lose has no reason to delay anyway.
-        """
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-
-        claim = self.claims[claim_id]
+        """Re-runs full validator consensus on a challenged claim.
+        Claimant-only - they already proved wallet control at submission.
+        Approves overrule the challenge back to "approved"; otherwise the
+        wallet's approved-claim slot is freed for a new claim."""
+        claim = self._get_claim(claim_id)
         if gl.message.sender_address != claim.claimant:
             raise gl.vm.UserError("Only the claimant can resolve a challenge")
         if claim.status != "challenged":
@@ -661,31 +555,13 @@ This result should be perfectly parsable by a JSON parser without errors.
         verdict = self._judge(
             claim.drained_wallet, claim.evidence_url, claim.statement, claim.drain_tx_hash
         )
-
-        verdict_value = str(verdict.get("verdict", "")).lower()
-        if verdict_value == "approve":
-            claim.status = "approved"
-            self.approved_wallets[wallet_key] = claim.id
-        else:
-            claim.status = "denied" if verdict_value == "deny" else "insufficient"
-            existing = self.approved_wallets.get(wallet_key)
-            if existing == claim.id:
-                del self.approved_wallets[wallet_key]
-
-        confidence = int(verdict.get("confidence", 0))
-        claim.verdict_confidence = max(0, min(100, confidence))
-        claim.verdict_reasoning = str(verdict.get("reasoning", ""))
-        claim.drained_token = str(verdict.get("token", ""))
-        claim.drained_amount = int(verdict.get("amount", 0))
+        self._apply_verdict(claim, wallet_key, verdict, clear_wallet_on_reject=True)
 
     @gl.public.write
     def submit_appeal(
         self, claim_id: str, evidence_url: str, statement: str, drain_tx_hash: str
     ) -> None:
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-
-        claim = self.claims[claim_id]
+        claim = self._get_claim(claim_id)
 
         if gl.message.sender_address != claim.claimant:
             raise gl.vm.UserError("Only the claimant can appeal this claim")
@@ -697,9 +573,7 @@ This result should be perfectly parsable by a JSON parser without errors.
             raise gl.vm.UserError("Approved claims cannot be appealed")
 
         if claim.status == "challenged":
-            raise gl.vm.UserError(
-                "This claim is under challenge - use resolve_challenge, not submit_appeal"
-            )
+            raise gl.vm.UserError("This claim is under challenge - use resolve_challenge, not submit_appeal")
 
         if claim.appeal_count >= MAX_APPEALS:
             raise gl.vm.UserError(f"Maximum of {MAX_APPEALS} appeals reached")
@@ -714,47 +588,29 @@ This result should be perfectly parsable by a JSON parser without errors.
 
     @gl.public.view
     def get_claim(self, claim_id: str) -> Claim:
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-        return self.claims[claim_id]
+        return self._get_claim(claim_id)
 
     @gl.public.view
     def get_claim_status(self, claim_id: str) -> str:
-        """Narrow, primitive-typed getter for downstream consumers (e.g. a
-        recovery/escrow contract deciding whether to release funds) - a
-        single str is trivial to consume via a cross-contract call, unlike
-        decoding the full Claim dataclass. See contracts/recovery_release_vault.py
-        for a working example consumer."""
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-        return self.claims[claim_id].status
+        """Narrow, primitive-typed getter for downstream consumers, e.g.
+        contracts/recovery_release_vault.py."""
+        return self._get_claim(claim_id).status
 
     @gl.public.view
     def get_claim_claimant(self, claim_id: str) -> Address:
-        """Companion to get_claim_status: who to pay out to once a
-        downstream consumer confirms the claim is approved."""
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-        return self.claims[claim_id].claimant
+        """Companion to get_claim_status: who to pay out."""
+        return self._get_claim(claim_id).claimant
 
     @gl.public.view
     def get_claim_drained_asset(self, claim_id: str) -> str:
-        """Companion to get_claim_status: which asset a downstream release
-        should be denominated in - "native", a token contract address, or
-        "" if no asset was ever verified for this claim (e.g. it was
-        auto-denied before a transfer could be decoded)."""
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-        return self.claims[claim_id].drained_token
+        """Which asset a downstream release should be denominated in -
+        "native", a token address, or "" if never verified."""
+        return self._get_claim(claim_id).drained_token
 
     @gl.public.view
     def get_claim_drained_amount(self, claim_id: str) -> u256:
-        """Companion to get_claim_drained_asset: the verified amount, in
-        the drained asset's own base units (wei for native, or the
-        token's smallest unit / tokenId for a Transfer)."""
-        if claim_id not in self.claims:
-            raise gl.vm.UserError("Claim not found")
-        return self.claims[claim_id].drained_amount
+        """Companion to get_claim_drained_asset: the verified amount."""
+        return self._get_claim(claim_id).drained_amount
 
     @gl.public.view
     def get_claims_by_address(self, claimant: str) -> list:
