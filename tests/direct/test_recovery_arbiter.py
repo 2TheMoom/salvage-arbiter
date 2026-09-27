@@ -57,17 +57,6 @@ def _approval_log(owner: str = DRAINED_WALLET_ADDRESS) -> dict:
     }
 
 
-def _mock_chain_balance(vm, balance_wei: int = 0):
-    vm.mock_web(
-        r"call=balance",
-        {
-            "method": "POST",
-            "status": 200,
-            "body": json.dumps({"jsonrpc": "2.0", "id": 1, "result": hex(balance_wei)}),
-        },
-    )
-
-
 def _mock_drain_tx(
     vm,
     from_address: str = DRAINED_WALLET_ADDRESS,
@@ -123,7 +112,7 @@ def _valid_signature(claimant_hex: str, wallet: str = WALLET) -> str:
     return sign_ownership_message(DRAINED_WALLET_PRIVATE_KEY, wallet, claimant_hex)
 
 
-def _setup_verdict_mock(vm, evidence_body, verdict, confidence, reasoning, balance_wei=0):
+def _setup_verdict_mock(vm, evidence_body, verdict, confidence, reasoning):
     # The contract requires evidence to mention both the wallet address AND
     # the specific drain transaction (or its destination) before ever
     # consulting the LLM - this authenticates the evidence as being about
@@ -137,7 +126,6 @@ def _setup_verdict_mock(vm, evidence_body, verdict, confidence, reasoning, balan
         },
     )
     _mock_drain_tx(vm)
-    _mock_chain_balance(vm, balance_wei)
     vm.mock_llm(
         r".*adjudicating a cryptocurrency fund-recovery claim.*",
         json.dumps(
@@ -489,31 +477,6 @@ def test_adjudicate_clamps_confidence(direct_vm, arbiter_deploy, direct_alice):
     assert contract.get_claim(claim_id).verdict_confidence == 100
 
 
-def test_adjudicate_includes_chain_balance_in_prompt(direct_vm, arbiter_deploy, direct_alice):
-    contract = arbiter_deploy(CONTRACT)
-    direct_vm.sender = direct_alice
-    alice = to_hex(direct_alice)
-
-    claim_id = contract.submit_claim(
-        WALLET, "https://evidence.example/proof", "statement", _valid_signature(alice), DRAIN_TX_HASH
-    )
-
-    direct_vm.mock_web(
-        r".*evidence\.example.*",
-        {"status": 200, "body": f"proof (wallet: {DRAINED_WALLET_ADDRESS}, tx: {DRAIN_TX_HASH})"},
-    )
-    _mock_drain_tx(direct_vm)
-    _mock_chain_balance(direct_vm, balance_wei=123456)
-    direct_vm.mock_llm(
-        r".*Current balance.*123456 wei.*",
-        json.dumps({"verdict": "approve", "confidence": 90, "reasoning": "balance matches"}),
-    )
-
-    contract.adjudicate(claim_id)
-
-    assert contract.get_claim(claim_id).status == "approved"
-
-
 def test_adjudicate_denies_when_drain_tx_not_found(direct_vm, arbiter_deploy, direct_alice):
     """Authoritative check: if the cited drain transaction doesn't exist
     on-chain, the claim is auto-denied without ever consulting the LLM -
@@ -529,7 +492,6 @@ def test_adjudicate_denies_when_drain_tx_not_found(direct_vm, arbiter_deploy, di
 
     direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
     _mock_drain_tx(direct_vm, found=False)
-    _mock_chain_balance(direct_vm, balance_wei=0)
     # No LLM mock registered - if the contract called the LLM here, the
     # test would fail with an unmocked-prompt error, proving it didn't.
 
@@ -556,7 +518,6 @@ def test_adjudicate_denies_when_drain_tx_from_wrong_address(direct_vm, arbiter_d
 
     direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
     _mock_drain_tx(direct_vm, from_address=OTHER_ADDRESS)
-    _mock_chain_balance(direct_vm, balance_wei=0)
 
     contract.adjudicate(claim_id)
 
@@ -581,7 +542,6 @@ def test_adjudicate_denies_when_drain_tx_reverted(direct_vm, arbiter_deploy, dir
 
     direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
     _mock_drain_tx(direct_vm, status_success=False)
-    _mock_chain_balance(direct_vm, balance_wei=0)
 
     contract.adjudicate(claim_id)
 
@@ -607,7 +567,6 @@ def test_adjudicate_denies_when_drain_tx_moved_nothing(direct_vm, arbiter_deploy
 
     direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
     _mock_drain_tx(direct_vm, value_wei=0, logs=[])
-    _mock_chain_balance(direct_vm, balance_wei=0)
 
     contract.adjudicate(claim_id)
 
@@ -638,7 +597,6 @@ def test_adjudicate_denies_when_only_unrelated_logs_emitted(
 
     direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
     _mock_drain_tx(direct_vm, value_wei=0, logs=[_unrelated_log(), _approval_log()])
-    _mock_chain_balance(direct_vm, balance_wei=0)
     # No LLM mock registered - if the contract called the LLM here, the
     # test would fail with an unmocked-prompt error, proving it didn't.
 
@@ -669,7 +627,6 @@ def test_adjudicate_denies_when_transfer_log_is_from_someone_else(
 
     direct_vm.mock_web(r".*evidence\.example.*", {"status": 200, "body": "proof"})
     _mock_drain_tx(direct_vm, value_wei=0, logs=[_transfer_log(from_address=OTHER_ADDRESS)])
-    _mock_chain_balance(direct_vm, balance_wei=0)
 
     contract.adjudicate(claim_id)
 
@@ -698,7 +655,6 @@ def test_adjudicate_accepts_token_style_drain_with_zero_native_value(
         r".*evidence\.example.*",
         {"status": 200, "body": f"proof (wallet: {DRAINED_WALLET_ADDRESS}, tx: {DRAIN_TX_HASH})"},
     )
-    _mock_chain_balance(direct_vm, balance_wei=0)
     direct_vm.mock_llm(
         r".*adjudicating a cryptocurrency fund-recovery claim.*",
         json.dumps({"verdict": "approve", "confidence": 90, "reasoning": "token drain confirmed"}),
@@ -733,7 +689,6 @@ def test_adjudicate_denies_when_evidence_does_not_reference_incident(
         {"status": 200, "body": f"Some generic page about {DRAINED_WALLET_ADDRESS}."},
     )
     _mock_drain_tx(direct_vm)
-    _mock_chain_balance(direct_vm, balance_wei=0)
     # No LLM mock registered - if the contract called the LLM here, the
     # test would fail with an unmocked-prompt error, proving it didn't.
 
@@ -767,7 +722,6 @@ def test_adjudicate_accepts_evidence_referencing_destination_instead_of_tx_hash(
             "body": f"Funds from {DRAINED_WALLET_ADDRESS} sent to known scammer {DRAIN_DESTINATION}.",
         },
     )
-    _mock_chain_balance(direct_vm, balance_wei=0)
     direct_vm.mock_llm(
         r".*adjudicating a cryptocurrency fund-recovery claim.*",
         json.dumps({"verdict": "approve", "confidence": 90, "reasoning": "destination matches scam db"}),
@@ -798,7 +752,6 @@ def test_adjudicate_denies_when_evidence_does_not_mention_wallet(
         r".*evidence\.example.*", {"status": 200, "body": "This page mentions nothing specific."}
     )
     _mock_drain_tx(direct_vm)
-    _mock_chain_balance(direct_vm, balance_wei=0)
     # No LLM mock registered - if the contract called the LLM here, the
     # test would fail with an unmocked-prompt error, proving it didn't.
 

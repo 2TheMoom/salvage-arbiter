@@ -7,15 +7,12 @@ from genlayer import *
 MAX_APPEALS = 3
 MAX_CHALLENGES = 3
 
-# keccak256("Transfer(address,address,uint256)") - finds a genuine asset
-# movement, not just "a log was emitted" (which an Approval etc. would pass).
+# keccak256("Transfer(address,address,uint256)")
 TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-# Not security-critical (only the LLM's verdict is equivalence-checked), so
-# a plain public RPC is fine here.
 CHAIN_DATA_RPC_URL = "https://ethereum-rpc.publicnode.com"
 
-# A browser-like User-Agent avoids bot-blocking on some public RPC gateways.
+# Browser-like User-Agent avoids bot-blocking on some public RPC gateways.
 RPC_HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -44,7 +41,7 @@ class Claim:
 
 
 def _extract_address_hex(wallet: str) -> str:
-    """Strips an optional chain prefix (e.g. "eth:") and "0x", lowercased."""
+    """Strips optional chain prefix (e.g. "eth:") and "0x", lowercased."""
     w = wallet.lower()
     if ":" in w:
         w = w.split(":", 1)[1]
@@ -88,27 +85,24 @@ def _canonical_wallet_key(drained_wallet: str) -> str:
 class RecoveryArbiter(gl.Contract):
     """Adjudicates fund-recovery claims for compromised wallets.
 
-    A claimant proves wallet control via EIP-191 signature (a cross-contract
-    call to SignatureVerifier - see signature_verifier.py, split out purely
-    to clear Bradbury's ~20-22KB deploy gas ceiling) and cites the drain tx.
-    Before the LLM is consulted, that citation is confirmed on-chain: a
-    real, successful tx from the claimed wallet with a genuine ERC-20/721
-    Transfer naming it as sender (or non-zero native value) - not just any
-    tx hash or log-emitting tx. The decoded token/amount/destination bind
-    to the claim, not supplied by the claimant. Evidence must reference
-    that tx/destination before the LLM judges whether the movement was
-    *unauthorized* (phishing/approval exploit) vs. voluntary - occurrence
-    itself is never in question by that point. Covers approval/phishing
-    drains, not private-key theft (unprovable by any signature scheme -
-    only the thief could then sign). Validators reach consensus on both
-    the decoded facts and the verdict via the equivalence principle.
+    A claimant proves wallet control via EIP-191 signature (cross-contract
+    call to SignatureVerifier, split out to clear Bradbury's deploy gas
+    ceiling) and cites the drain tx. Before the LLM is consulted, that
+    citation is confirmed on-chain: a real, successful tx from the claimed
+    wallet with a genuine ERC-20/721 Transfer naming it as sender (or
+    non-zero native value) - not just any tx hash or log-emitting tx.
+    Decoded token/amount/destination bind to the claim, not supplied by
+    the claimant. Evidence must reference that tx/destination before the
+    LLM judges whether the movement was *unauthorized* vs. voluntary -
+    occurrence itself is never in question by then. Covers approval/
+    phishing drains, not private-key theft (unprovable by any signature
+    scheme). Validators reach consensus on both the decoded facts and the
+    verdict via the equivalence principle.
 
-    An approved claim isn't final: any address may challenge it once
-    (challenge_claim), freezing it until the claimant re-adjudicates
-    (resolve_challenge) - rate-limited and capped, not bonded.
-
-    Result: an on-chain attestation an off-chain recovery flow can require
-    before releasing funds - one per wallet.
+    An approved claim isn't final: any address may challenge it once,
+    freezing it until the claimant re-adjudicates - rate-limited and
+    capped, not bonded. Result: an on-chain attestation an off-chain
+    recovery flow can require before releasing funds - one per wallet.
     """
 
     claims: TreeMap[str, Claim]
@@ -171,26 +165,6 @@ class RecoveryArbiter(gl.Contract):
         self.claimant_claims.get_or_insert_default(sender).append(claim_id)
         self.wallet_claims.get_or_insert_default(wallet_key).append(claim_id)
         return claim_id
-
-    def _fetch_chain_balance(self, drained_wallet: str) -> str:
-        wallet_hex = _extract_address_hex(drained_wallet)
-        if len(wallet_hex) != 40:
-            return "unknown (unrecognized wallet address format)"
-
-        body = json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": "eth_getBalance", "params": ["0x" + wallet_hex, "latest"]}
-        )
-        try:
-            resp = gl.nondet.web.post(
-                CHAIN_DATA_RPC_URL + "?call=balance", body=body, headers=RPC_HEADERS
-            )
-            payload = json.loads((resp.body or b"").decode("utf-8"))
-            balance_hex = payload.get("result")
-            if not balance_hex:
-                return "unknown (RPC lookup failed)"
-            return f"{int(balance_hex, 16)} wei"
-        except (ValueError, AttributeError, TypeError):
-            return "unknown (RPC lookup failed)"
 
     def _fetch_tx_facts(self, tx_hash: str) -> dict | None:
         """Cited drain tx + receipt; None if not found/failed, else facts
@@ -295,7 +269,6 @@ class RecoveryArbiter(gl.Contract):
                     "wallet generally."
                 )
 
-            balance = self._fetch_chain_balance(drained_wallet)
             destination_display = f"0x{destination_hex}" if destination_hex else "unknown (contract creation)"
             asset_display = (
                 f"{drained_amount} wei of native ETH" if drained_token == "native"
@@ -312,7 +285,6 @@ re-litigate ownership.
 Confirmed on-chain (not editable by claimant): {drain_tx_hash} is a real, successful tx
 sent FROM this wallet that moved {asset_display} to {destination_display}, at block
 {facts['block_number']}. That movement is settled fact.
-Current balance of {drained_wallet}: {balance}.
 
 NOT established: whether this movement was authorized. The key-holder signing this exact
 tx is consistent with (a) an ordinary voluntary transfer, or (b) a phishing/malicious-
@@ -399,10 +371,9 @@ sentences.
 
     @gl.public.write
     def challenge_claim(self, claim_id: str, reason: str) -> None:
-        """Permissionless: freezes an approved claim pending re-adjudication
-        (e.g. a "drain" that was really voluntary). Rate-limited/capped, not
-        bonded, since this contract never moves value. "challenged" !=
-        "approved", which alone blocks RecoveryReleaseVault.release()."""
+        """Permissionless: freezes an approved claim pending re-adjudication.
+        Rate-limited/capped, not bonded. "challenged" != "approved", which
+        alone blocks RecoveryReleaseVault.release()."""
         claim = self._get_claim(claim_id)
         if claim.status != "approved":
             raise gl.vm.UserError("Only an approved claim can be challenged")
@@ -423,10 +394,8 @@ sentences.
 
     @gl.public.write
     def resolve_challenge(self, claim_id: str) -> None:
-        """Re-runs full validator consensus on a challenged claim.
-        Claimant-only - they already proved wallet control at submission.
-        Approves overrule the challenge back to "approved"; otherwise the
-        wallet's approved-claim slot is freed for a new claim."""
+        """Re-runs consensus on a challenged claim. Claimant-only. Approve
+        overrules back to "approved"; otherwise the wallet's slot frees."""
         claim = self._get_claim(claim_id)
         if gl.message.sender_address != claim.claimant:
             raise gl.vm.UserError("Only the claimant can resolve a challenge")
