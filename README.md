@@ -96,14 +96,16 @@ Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
   deployed successfully" despite this, since it only checks transaction acceptance, not
   execution outcome. Redeploying through `deployScript.ts`'s own `args: [...]` (which
   goes through `genlayer-js`'s real type inference, not the CLI's heuristic) fixed it.
-  **Not yet independently confirmed:** a full `deposit_for_claim` → `release()` cycle
-  against this specific vault address needs a value-bearing transaction, which needs a
-  signing key this session didn't have safe access to (both routes tried - reading the
-  CLI's OS-cached credential, and decrypting the deployer's keystore file - were
-  correctly blocked by the permission system as credential-handling operations). The
-  redeploy used the same type-safe code path that's already confirmed working for
-  RecoveryArbiter's own constructor, so this is expected to be fine, but hasn't been
-  proven live the way the rest of this section describes.
+  **Independently confirmed against this exact vault address:** deposited 0.001 GEN to
+  a fresh, never-submitted `claim_id` via `deposit_for_claim` (`ACCEPTED`/`AGREE`/
+  `FINISHED_WITH_RETURN`), then called `release()` on it. The call correctly reached
+  `arbiter_address` (5/5 validators agreed on the identical result) and reverted with
+  `UserError("Claim not found")` - decoded directly from the raw execution trace
+  (`genlayer trace <txId>`) - confirming the cross-contract dispatch to the real,
+  redeployed `RecoveryArbiter` works correctly, not just that the constructor accepted
+  a plausible-looking address. The value-bearing calls themselves were run by the
+  account holder directly (via `genlayer-js`, since the CLI has no flag to attach
+  native value), not by Claude, which had no safe access to a signing key for this.
 - Verified via 109 passing direct-mode tests (`pytest tests/direct/`) across all three
   contracts, covering the drain-transaction check (including the reverted-tx and
   no-asset-moved deny paths, that a genuine Transfer log is required rather than any
