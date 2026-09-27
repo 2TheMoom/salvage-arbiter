@@ -56,6 +56,13 @@ export default async function main(client: GenLayerClient<any>) {
     // undocumented ~20-22KB deploy gas ceiling - see
     // contracts/signature_verifier.py's docstring and genvm-manager#46),
     // and RecoveryReleaseVault's constructor takes RecoveryArbiter's.
+    //
+    // Always deploy constructor args through this script's args: [...]
+    // (genlayer-js's own type inference), never via
+    // `genlayer deploy --contract X --args Y` - the bare CLI path
+    // mis-typed a plain address string as an Address calldata value
+    // instead of the str the constructors declare, which silently
+    // crashed __init__ (accepted on-chain, but FINISHED_WITH_ERROR).
     const verifierAddress = await deployOne(client, "contracts/signature_verifier.py", []);
     const arbiterAddress = await deployOne(client, "contracts/recovery_arbiter.py", [verifierAddress]);
     const vaultAddress = await deployOne(client, "contracts/recovery_release_vault.py", [arbiterAddress]);

@@ -83,10 +83,27 @@ funds); it's a small, independently deployable contract that proves the gating
 actually works.
 
 ## Live deployment
-Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **SignatureVerifier:** `<pending redeploy>`
-- **RecoveryArbiter:** `<pending redeploy>`
-- **RecoveryReleaseVault** (example downstream consumer): `<pending redeploy>`
+Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
+- **SignatureVerifier:** [`0x1C3653cE0C5eD5659DB6ead99Ce221A027e80b23`](https://explorer-bradbury.genlayer.com/address/0x1C3653cE0C5eD5659DB6ead99Ce221A027e80b23)
+- **RecoveryArbiter:** [`0x3e5515cFd2CdFed30712b1b958e57D09143943b3`](https://explorer-bradbury.genlayer.com/address/0x3e5515cFd2CdFed30712b1b958e57D09143943b3)
+- **RecoveryReleaseVault** (example downstream consumer): [`0x305a2eb4A93A2e76BC620ab85C85C76a080e000d`](https://explorer-bradbury.genlayer.com/address/0x305a2eb4A93A2e76BC620ab85C85C76a080e000d)
+- **A real gotcha hit redeploying this set:** `genlayer deploy --contract X --args Y`
+  (the bare CLI path, as opposed to this repo's own `deploy/deployScript.ts`) mis-typed
+  a plain 40-hex-char address string as an `Address` calldata value instead of the `str`
+  the constructors declare. The deploy transaction itself was accepted on-chain
+  (`status: ACCEPTED`, 5/5 `AGREE`) but `__init__` crashed internally
+  (`txExecutionResultName: FINISHED_WITH_ERROR`) - the CLI still printed "Contract
+  deployed successfully" despite this, since it only checks transaction acceptance, not
+  execution outcome. Redeploying through `deployScript.ts`'s own `args: [...]` (which
+  goes through `genlayer-js`'s real type inference, not the CLI's heuristic) fixed it.
+  **Not yet independently confirmed:** a full `deposit_for_claim` → `release()` cycle
+  against this specific vault address needs a value-bearing transaction, which needs a
+  signing key this session didn't have safe access to (both routes tried - reading the
+  CLI's OS-cached credential, and decrypting the deployer's keystore file - were
+  correctly blocked by the permission system as credential-handling operations). The
+  redeploy used the same type-safe code path that's already confirmed working for
+  RecoveryArbiter's own constructor, so this is expected to be fine, but hasn't been
+  proven live the way the rest of this section describes.
 - Verified via 109 passing direct-mode tests (`pytest tests/direct/`) across all three
   contracts, covering the drain-transaction check (including the reverted-tx and
   no-asset-moved deny paths, that a genuine Transfer log is required rather than any
@@ -102,11 +119,14 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   direct mode via a custom dispatch hook (see "Design notes") - every signature-related
   test runs real ECDSA recovery through the actual verifier contract, not a stub. The
   vault's cross-contract call to RecoveryArbiter (a stateful contract, unlike the
-  verifier) still isn't reachable in direct mode, so that gating continues to be
-  verified live: a claim was submitted and denied, funds were deposited into the vault
-  for it, and `release()` correctly read RecoveryArbiter's real on-chain status via
-  `gl.get_contract_at` and refused to pay out - proving the integration genuinely
-  works, not just that the two contracts compile against each other.
+  verifier) still isn't reachable in direct mode, so that gating was previously verified
+  live against an earlier deployment of this same vault/arbiter pair (superseded by the
+  addresses above): a claim was submitted and denied, funds were deposited into the
+  vault for it, and `release()` correctly read RecoveryArbiter's real on-chain status
+  via `gl.get_contract_at` and refused to pay out - proving the integration genuinely
+  works, not just that the two contracts compile against each other. That specific
+  cycle hasn't been re-run against the current addresses yet (see the gotcha note
+  above) - the vault's `deposit_for_claim`/`release` logic is unchanged since then.
 - **Known limitation:** the *approved* payout path - `release()` actually transferring
   escrowed funds to a claimant - could not be verified live, because `emit_transfer`
   does not currently deliver value on Bradbury testnet at all, even from a minimal
@@ -119,6 +139,10 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   is fully verified (above), only the final on-chain transfer dispatch is currently
   blocked by GenLayer's own infrastructure.
 - Previous RecoveryArbiter deployments (superseded, kept for history):
+  [pre-split, pre-challenge-path](https://explorer-bradbury.genlayer.com/address/0x1eD87a20cD49a955Cc5686e9e18E1A592d3Cf194)
+  (the version this README's Live deployment section pointed at before the
+  SignatureVerifier split and the Transfer-log/challenge-path fixes above - see "Design
+  notes" for both),
   [pre-asset-movement-check](https://explorer-bradbury.genlayer.com/address/0xC3880D78717bD940A238951fe8F4c8A5219F1A68)
   (the drain-tx check confirmed only that a transaction with the cited hash existed and
   was sent from the claimed wallet, not that it succeeded or moved any value - the gap
@@ -131,8 +155,9 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   [signature + chain-check + first competing-claim pass](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C),
   [appeal-path only](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc),
   [original, pre-appeal](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03).
-  Previous RecoveryReleaseVault deployment (superseded, pointed at the pre-asset-movement-check
-  arbiter above): [`0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05`](https://explorer-bradbury.genlayer.com/address/0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05).
+  Previous RecoveryReleaseVault deployments (superseded): pointed at the pre-split
+  arbiter above: [`0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772`](https://explorer-bradbury.genlayer.com/address/0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772);
+  pointed at the pre-asset-movement-check arbiter: [`0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05`](https://explorer-bradbury.genlayer.com/address/0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05).
 
 ### Design notes
 - **Signature verification uses no external RPC.** An earlier version called a public
