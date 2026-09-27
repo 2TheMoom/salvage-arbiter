@@ -11,12 +11,6 @@ MAX_CHALLENGES = 3
 # movement, not just "a log was emitted" (which an Approval etc. would pass).
 TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-# secp256k1 curve parameters, for pure-Python ECDSA public-key recovery.
-_SECP256K1_P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
-_SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
-_SECP256K1_GX = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
-_SECP256K1_GY = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
-
 # Not security-critical (only the LLM's verdict is equivalence-checked), so
 # a plain public RPC is fine here.
 CHAIN_DATA_RPC_URL = "https://ethereum-rpc.publicnode.com"
@@ -38,14 +32,14 @@ class Claim:
     statement: str
     signature: str
     drain_tx_hash: str
-    status: str  # "pending" | "approved" | "denied" | "insufficient" | "challenged"
+    status: str  # pending|approved|denied|insufficient|challenged
     verdict_confidence: u256
     verdict_reasoning: str
     appeal_count: u256
-    drained_token: str  # contract address (no "0x"), or "native" for ETH
-    drained_amount: u256  # base units of drained_token, or wei if native
+    drained_token: str  # token addr, or "native"
+    drained_amount: u256
     challenge_reason: str
-    challenger: str  # address hex (no "0x") of whoever last challenged this claim
+    challenger: str  # hex, no "0x"
     challenge_count: u256
 
 
@@ -91,89 +85,27 @@ def _canonical_wallet_key(drained_wallet: str) -> str:
     return _extract_address_hex(drained_wallet)
 
 
-def _ec_inv(a: int, m: int) -> int:
-    return pow(a, m - 2, m)
-
-
-def _ec_add(p1, p2):
-    if p1 is None:
-        return p2
-    if p2 is None:
-        return p1
-    x1, y1 = p1
-    x2, y2 = p2
-    if x1 == x2 and (y1 + y2) % _SECP256K1_P == 0:
-        return None
-    if p1 == p2:
-        lam = (3 * x1 * x1) * _ec_inv(2 * y1, _SECP256K1_P) % _SECP256K1_P
-    else:
-        lam = (y2 - y1) * _ec_inv((x2 - x1) % _SECP256K1_P, _SECP256K1_P) % _SECP256K1_P
-    x3 = (lam * lam - x1 - x2) % _SECP256K1_P
-    y3 = (lam * (x1 - x3) - y1) % _SECP256K1_P
-    return (x3, y3)
-
-
-def _ec_mul(k: int, point):
-    result = None
-    addend = point
-    while k:
-        if k & 1:
-            result = _ec_add(result, addend)
-        addend = _ec_add(addend, addend)
-        k >>= 1
-    return result
-
-
-def _ecrecover(digest: bytes, v: int, r: int, s: int) -> bytes:
-    """Recovers the 20-byte signer address via pure-Python secp256k1 -
-    deliberately not an RPC ecrecover call, since different validators can
-    land on different backend nodes and disagree even on this deterministic
-    a computation, causing spurious consensus failures."""
-    if r <= 0 or r >= _SECP256K1_N or s <= 0 or s >= _SECP256K1_N:
-        raise ValueError("invalid signature component")
-
-    recovery_id = v - 27
-    x = r
-    y_squared = (pow(x, 3, _SECP256K1_P) + 7) % _SECP256K1_P
-    y = pow(y_squared, (_SECP256K1_P + 1) // 4, _SECP256K1_P)
-    if y % 2 != recovery_id % 2:
-        y = _SECP256K1_P - y
-
-    point_r = (x, y)
-    e = int.from_bytes(digest, "big") % _SECP256K1_N
-    r_inv = _ec_inv(r, _SECP256K1_N)
-    generator = (_SECP256K1_GX, _SECP256K1_GY)
-
-    s_r = _ec_mul(s, point_r)
-    e_g = _ec_mul(e, generator)
-    neg_e_g = (e_g[0], (_SECP256K1_P - e_g[1]) % _SECP256K1_P)
-    public_key = _ec_mul(r_inv, _ec_add(s_r, neg_e_g))
-
-    pubkey_bytes = public_key[0].to_bytes(32, "big") + public_key[1].to_bytes(32, "big")
-    return Keccak256(pubkey_bytes).digest()[-20:]
-
-
 class RecoveryArbiter(gl.Contract):
     """Adjudicates fund-recovery claims for compromised wallets.
 
-    A claimant proves wallet control via EIP-191 signature (pure-Python
-    ECDSA, not AI) and cites the drain tx. Before the LLM is consulted,
-    that citation is confirmed on-chain: a real, successful tx from the
-    claimed wallet with a genuine ERC-20/721 Transfer naming it as sender
-    (or non-zero native value) - not just any tx hash or log-emitting tx.
-    The decoded token/amount/destination bind to the claim, not supplied
-    by the claimant. Evidence must reference that tx/destination before
-    the LLM judges whether the movement was *unauthorized* (phishing/
-    approval exploit) vs. voluntary - occurrence itself is never in
-    question by that point. Covers approval/phishing drains, not
-    private-key theft (unprovable by any signature scheme - only the
-    thief could then sign). Validators reach consensus on both the
-    decoded facts and the verdict via the equivalence principle.
+    A claimant proves wallet control via EIP-191 signature (a cross-contract
+    call to SignatureVerifier - see signature_verifier.py, split out purely
+    to clear Bradbury's ~20-22KB deploy gas ceiling) and cites the drain tx.
+    Before the LLM is consulted, that citation is confirmed on-chain: a
+    real, successful tx from the claimed wallet with a genuine ERC-20/721
+    Transfer naming it as sender (or non-zero native value) - not just any
+    tx hash or log-emitting tx. The decoded token/amount/destination bind
+    to the claim, not supplied by the claimant. Evidence must reference
+    that tx/destination before the LLM judges whether the movement was
+    *unauthorized* (phishing/approval exploit) vs. voluntary - occurrence
+    itself is never in question by that point. Covers approval/phishing
+    drains, not private-key theft (unprovable by any signature scheme -
+    only the thief could then sign). Validators reach consensus on both
+    the decoded facts and the verdict via the equivalence principle.
 
     An approved claim isn't final: any address may challenge it once
     (challenge_claim), freezing it until the claimant re-adjudicates
-    (resolve_challenge) - rate-limited and capped, not bonded, since this
-    contract never moves value itself.
+    (resolve_challenge) - rate-limited and capped, not bonded.
 
     Result: an on-chain attestation an off-chain recovery flow can require
     before releasing funds - one per wallet.
@@ -184,64 +116,15 @@ class RecoveryArbiter(gl.Contract):
     wallet_claims: TreeMap[str, DynArray[str]]
     approved_wallets: TreeMap[str, str]
     challenged_by: TreeMap[str, bool]
+    verifier_address: Address
 
-    def __init__(self):
-        pass
+    def __init__(self, verifier_address: str):
+        self.verifier_address = Address(verifier_address)
 
     def _get_claim(self, claim_id: str) -> Claim:
         if claim_id not in self.claims:
             raise gl.vm.UserError("Claim not found")
         return self.claims[claim_id]
-
-    def _ownership_message(self, drained_wallet: str, claimant: Address) -> str:
-        return (
-            f"I authorize {claimant.as_hex} to submit a Salvage Arbiter "
-            f"recovery claim on behalf of {drained_wallet}."
-        )
-
-    def _recover_signer_hex(self, message: str, signature: str) -> str:
-        """Recovers the signer of an EIP-191 personal-sign signature and
-        returns it as lowercase hex (no 0x), or "" if the signature is
-        malformed."""
-        message_bytes = message.encode("utf-8")
-        prefix = f"\x19Ethereum Signed Message:\n{len(message_bytes)}".encode("utf-8")
-        digest = Keccak256(prefix + message_bytes).digest()
-
-        sig_hex = signature.lower()
-        if sig_hex.startswith("0x"):
-            sig_hex = sig_hex[2:]
-        if len(sig_hex) != 130:
-            return ""
-
-        try:
-            sig_bytes = bytes.fromhex(sig_hex)
-        except ValueError:
-            return ""
-
-        r = int.from_bytes(sig_bytes[:32], "big")
-        s = int.from_bytes(sig_bytes[32:64], "big")
-        v = sig_bytes[64]
-        if v < 27:
-            v += 27
-        if v not in (27, 28):
-            return ""
-
-        try:
-            recovered = _ecrecover(digest, v, r, s)
-        except (ValueError, ZeroDivisionError):
-            return ""
-        return recovered.hex()
-
-    def _verify_ownership_signature(
-        self, drained_wallet: str, claimant: Address, signature: str
-    ) -> bool:
-        wallet_hex = _extract_address_hex(drained_wallet)
-        if len(wallet_hex) != 40:
-            return False
-
-        message = self._ownership_message(drained_wallet, claimant)
-        recovered = self._recover_signer_hex(message, signature)
-        return bool(recovered) and recovered == wallet_hex
 
     @gl.public.write
     def submit_claim(
@@ -262,7 +145,8 @@ class RecoveryArbiter(gl.Contract):
         if wallet_key in self.approved_wallets:
             raise gl.vm.UserError("This wallet already has an approved recovery claim")
 
-        if not self._verify_ownership_signature(drained_wallet, sender, signature):
+        verifier = gl.get_contract_at(self.verifier_address)
+        if not verifier.view().verify_ownership(drained_wallet, sender, signature):
             raise gl.vm.UserError("Signature does not prove control of the drained wallet")
 
         claim = Claim(
@@ -309,10 +193,8 @@ class RecoveryArbiter(gl.Contract):
             return "unknown (RPC lookup failed)"
 
     def _fetch_tx_facts(self, tx_hash: str) -> dict | None:
-        """Fetches the cited drain tx + receipt; None if not found/failed,
-        else from/to/value_wei/block_number/status_success plus
-        token_transfer (decoded genuine Transfer naming the sender, not
-        just "logs exist")."""
+        """Cited drain tx + receipt; None if not found/failed, else facts
+        plus token_transfer (a decoded genuine Transfer, not "logs exist")."""
         tx_body = json.dumps(
             {"jsonrpc": "2.0", "id": 1, "method": "eth_getTransactionByHash", "params": [tx_hash]}
         )
@@ -320,7 +202,7 @@ class RecoveryArbiter(gl.Contract):
             {"jsonrpc": "2.0", "id": 1, "method": "eth_getTransactionReceipt", "params": [tx_hash]}
         )
         try:
-            # Query suffix is inert on the real RPC (body-routed); lets tests mock each call distinctly.
+            # Query suffix is inert on real RPC; lets tests mock each call distinctly.
             tx_resp = gl.nondet.web.post(
                 CHAIN_DATA_RPC_URL + "?call=tx", body=tx_body, headers=RPC_HEADERS
             )
@@ -424,19 +306,19 @@ class RecoveryArbiter(gl.Contract):
 
 Drained/compromised wallet: {drained_wallet}
 
-The claimant already cryptographically proved control of this wallet via a verified
-EIP-191 signature - don't re-litigate ownership.
+Claimant already proved control of this wallet via a verified EIP-191 signature - don't
+re-litigate ownership.
 
-Independently confirmed on-chain (not provided or editable by the claimant): {drain_tx_hash}
-is a real, successful tx sent FROM this wallet that moved {asset_display} to
-{destination_display}, at block {facts['block_number']}. That movement is a settled fact.
+Confirmed on-chain (not editable by claimant): {drain_tx_hash} is a real, successful tx
+sent FROM this wallet that moved {asset_display} to {destination_display}, at block
+{facts['block_number']}. That movement is settled fact.
 Current balance of {drained_wallet}: {balance}.
 
-NOT yet established: whether this movement was authorized. The key-holder signing this
-exact tx is consistent with either (a) an ordinary voluntary transfer/swap/payment, or
-(b) a phishing or malicious-approval attack that tricked them into signing away funds.
-Judge which the claimant's statement and evidence support - not whether the tx happened
-(already settled), but whether it was unauthorized.
+NOT established: whether this movement was authorized. The key-holder signing this exact
+tx is consistent with (a) an ordinary voluntary transfer, or (b) a phishing/malicious-
+approval attack that tricked them into signing away funds. Judge which the claimant's
+statement and evidence support - not whether the tx happened (settled), but whether it
+was unauthorized.
 
 Claimant's statement:
 {statement}
@@ -446,16 +328,16 @@ Supporting evidence fetched from {evidence_url}:
 {web_data}
 \"\"\"
 
-Approve only if the statement and evidence together credibly describe this specific
-movement as unauthorized (e.g. a phishing site, a malicious token approval, a fake
-"support" request) - not merely that the wallet lost funds. Treat evidence that is
-generic, unrelated to this transaction, consistent with a voluntary transfer, or
-contradicted by the facts above as a reason to deny or mark insufficient.
+Approve only if the statement and evidence together credibly describe this movement as
+unauthorized (e.g. phishing, a malicious token approval, a fake "support" request) - not
+merely that the wallet lost funds. Treat generic evidence, evidence unrelated to this
+tx, evidence consistent with a voluntary transfer, or evidence contradicted by the facts
+above as a reason to deny or mark insufficient.
 
 Respond in JSON only, perfectly parsable, no other text:
 {{"verdict": str, "confidence": int, "reasoning": str}}
-verdict is "approve", "deny", or "insufficient"; confidence is 0-100; reasoning is one
-or two sentences.
+verdict is "approve"/"deny"/"insufficient"; confidence is 0-100; reasoning one or two
+sentences.
 """
             result = gl.nondet.exec_prompt(prompt, response_format="json")
             result["token"] = drained_token

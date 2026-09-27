@@ -146,8 +146,8 @@ def _setup_verdict_mock(vm, evidence_body, verdict, confidence, reasoning, balan
     )
 
 
-def test_submit_claim(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_submit_claim(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -169,8 +169,8 @@ def test_submit_claim(direct_vm, direct_deploy, direct_alice):
     assert claim.appeal_count == 0
 
 
-def test_submit_claim_with_invalid_signature_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_submit_claim_with_invalid_signature_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -180,8 +180,8 @@ def test_submit_claim_with_invalid_signature_fails(direct_vm, direct_deploy, dir
         )
 
 
-def test_submit_claim_with_wrong_signer_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_submit_claim_with_wrong_signer_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -194,8 +194,8 @@ def test_submit_claim_with_wrong_signer_fails(direct_vm, direct_deploy, direct_a
         )
 
 
-def test_submit_duplicate_claim_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_submit_duplicate_claim_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -218,13 +218,13 @@ def _reformatted_wallet() -> str:
 
 
 def test_submit_duplicate_claim_with_reformatted_address_fails(
-    direct_vm, direct_deploy, direct_alice
+    direct_vm, arbiter_deploy, direct_alice
 ):
     """Adversarial: reformatting the same wallet's address string (dropping
     the chain prefix, changing case) must not let a claimant slip a second
     claim for a wallet they've already claimed past the duplicate check.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -244,13 +244,13 @@ def test_submit_duplicate_claim_with_reformatted_address_fails(
 
 
 def test_submit_claim_for_approved_wallet_blocked_via_reformatted_address(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
     """Adversarial: once a wallet has an approved claim, submitting again
     under a differently-formatted (but identical) address string must still
     be rejected at submission time, not treated as a "new" wallet.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
     bob = to_hex(direct_bob)
 
@@ -273,7 +273,7 @@ def test_submit_claim_for_approved_wallet_blocked_via_reformatted_address(
 
 
 def test_adjudicate_denies_reformatted_wallet_competing_claim(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
     """Adversarial: two claims for the same real wallet submitted under
     different address formatting, both still pending when submitted, must
@@ -281,7 +281,7 @@ def test_adjudicate_denies_reformatted_wallet_competing_claim(
     canonicalization has to hold even when the exploit targets the
     check-at-adjudication path specifically, not just check-at-submission.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
     bob = to_hex(direct_bob)
 
@@ -312,8 +312,8 @@ def test_adjudicate_denies_reformatted_wallet_competing_claim(
     assert contract.get_claim(alice_claim_id).status == "approved"
 
 
-def test_get_claims_for_wallet_is_format_agnostic(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_get_claims_for_wallet_is_format_agnostic(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -328,9 +328,9 @@ def test_get_claims_for_wallet_is_format_agnostic(direct_vm, direct_deploy, dire
 
 
 def test_different_claimants_same_wallet(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
     bob = to_hex(direct_bob)
 
@@ -351,9 +351,9 @@ def test_different_claimants_same_wallet(
 
 
 def test_submit_claim_for_already_approved_wallet_fails(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
     bob = to_hex(direct_bob)
 
@@ -373,7 +373,7 @@ def test_submit_claim_for_already_approved_wallet_fails(
 
 
 def test_adjudicate_second_pending_claim_for_approved_wallet_denied(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
     """Two claims for the same wallet can both be submitted while pending
     (submit_claim's approved_wallets check only guards against a wallet
@@ -381,7 +381,7 @@ def test_adjudicate_second_pending_claim_for_approved_wallet_denied(
     must be auto-denied at adjudication time, even if the LLM would have
     approved it - a wallet can only ever end up with one approved claim.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
     bob = to_hex(direct_bob)
 
@@ -410,8 +410,8 @@ def test_adjudicate_second_pending_claim_for_approved_wallet_denied(
     assert contract.get_claim(alice_claim_id).status == "approved"
 
 
-def test_adjudicate_approved(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_adjudicate_approved(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -438,8 +438,8 @@ def test_adjudicate_approved(direct_vm, direct_deploy, direct_alice):
     assert contract.get_claim_drained_amount(claim_id) == 1
 
 
-def test_adjudicate_denied(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_adjudicate_denied(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -459,8 +459,8 @@ def test_adjudicate_denied(direct_vm, direct_deploy, direct_alice):
     assert contract.get_claim(claim_id).status == "denied"
 
 
-def test_adjudicate_insufficient_evidence(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_adjudicate_insufficient_evidence(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -474,8 +474,8 @@ def test_adjudicate_insufficient_evidence(direct_vm, direct_deploy, direct_alice
     assert contract.get_claim(claim_id).status == "insufficient"
 
 
-def test_adjudicate_clamps_confidence(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_adjudicate_clamps_confidence(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -489,8 +489,8 @@ def test_adjudicate_clamps_confidence(direct_vm, direct_deploy, direct_alice):
     assert contract.get_claim(claim_id).verdict_confidence == 100
 
 
-def test_adjudicate_includes_chain_balance_in_prompt(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_adjudicate_includes_chain_balance_in_prompt(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -514,12 +514,12 @@ def test_adjudicate_includes_chain_balance_in_prompt(direct_vm, direct_deploy, d
     assert contract.get_claim(claim_id).status == "approved"
 
 
-def test_adjudicate_denies_when_drain_tx_not_found(direct_vm, direct_deploy, direct_alice):
+def test_adjudicate_denies_when_drain_tx_not_found(direct_vm, arbiter_deploy, direct_alice):
     """Authoritative check: if the cited drain transaction doesn't exist
     on-chain, the claim is auto-denied without ever consulting the LLM -
     the claimant is citing evidence that doesn't hold up.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -541,12 +541,12 @@ def test_adjudicate_denies_when_drain_tx_not_found(direct_vm, direct_deploy, dir
     assert claim.verdict_confidence == 100
 
 
-def test_adjudicate_denies_when_drain_tx_from_wrong_address(direct_vm, direct_deploy, direct_alice):
+def test_adjudicate_denies_when_drain_tx_from_wrong_address(direct_vm, arbiter_deploy, direct_alice):
     """Authoritative check: if the cited transaction is real but wasn't
     sent from the claimed wallet, the claim is auto-denied without
     consulting the LLM.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -566,12 +566,12 @@ def test_adjudicate_denies_when_drain_tx_from_wrong_address(direct_vm, direct_de
     assert claim.verdict_confidence == 100
 
 
-def test_adjudicate_denies_when_drain_tx_reverted(direct_vm, direct_deploy, direct_alice):
+def test_adjudicate_denies_when_drain_tx_reverted(direct_vm, arbiter_deploy, direct_alice):
     """Authoritative check: a cited transaction that exists and was sent
     from the claimed wallet, but reverted on-chain, proves nothing actually
     happened - it's auto-denied without consulting the LLM.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -591,13 +591,13 @@ def test_adjudicate_denies_when_drain_tx_reverted(direct_vm, direct_deploy, dire
     assert claim.verdict_confidence == 100
 
 
-def test_adjudicate_denies_when_drain_tx_moved_nothing(direct_vm, direct_deploy, direct_alice):
+def test_adjudicate_denies_when_drain_tx_moved_nothing(direct_vm, arbiter_deploy, direct_alice):
     """Authoritative check: a real, successful transaction from the claimed
     wallet that transferred zero native value and emitted no events proves
     no asset actually left the wallet - a claimant can't cite an unrelated
     zero-value transaction (e.g. a self-send) as "proof" of a drain.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -620,7 +620,7 @@ def test_adjudicate_denies_when_drain_tx_moved_nothing(direct_vm, direct_deploy,
 
 
 def test_adjudicate_denies_when_only_unrelated_logs_emitted(
-    direct_vm, direct_deploy, direct_alice
+    direct_vm, arbiter_deploy, direct_alice
 ):
     """Adversarial: a transaction that emits logs - just not a Transfer
     naming this wallet as sender (e.g. only an Approval, or a Transfer to
@@ -628,7 +628,7 @@ def test_adjudicate_denies_when_only_unrelated_logs_emitted(
     "some log fired." This is the exact gap an earlier version of this
     contract had (log_count > 0 was sufficient on its own).
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -652,14 +652,14 @@ def test_adjudicate_denies_when_only_unrelated_logs_emitted(
 
 
 def test_adjudicate_denies_when_transfer_log_is_from_someone_else(
-    direct_vm, direct_deploy, direct_alice
+    direct_vm, arbiter_deploy, direct_alice
 ):
     """Adversarial: a real Transfer event log is present, but its `from`
     is a different address than the claimed wallet (e.g. the claimant cited
     a transaction where THEY received tokens, or someone else's transfer
     logged in the same tx). Must not be treated as this wallet's drain.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -679,14 +679,14 @@ def test_adjudicate_denies_when_transfer_log_is_from_someone_else(
 
 
 def test_adjudicate_accepts_token_style_drain_with_zero_native_value(
-    direct_vm, direct_deploy, direct_alice
+    direct_vm, arbiter_deploy, direct_alice
 ):
     """A token drain (e.g. ERC-20) moves zero native value but emits a
     Transfer event log - this must NOT be denied as "nothing moved" just
     because native value_wei is 0, since token transfers are a common real
     drain pattern.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -713,14 +713,14 @@ def test_adjudicate_accepts_token_style_drain_with_zero_native_value(
 
 
 def test_adjudicate_denies_when_evidence_does_not_reference_incident(
-    direct_vm, direct_deploy, direct_alice
+    direct_vm, arbiter_deploy, direct_alice
 ):
     """Authoritative check: evidence that mentions the wallet but neither
     the specific drain transaction nor its destination address can't be
     authenticated as evidence for THIS incident - just naming the wallet
     isn't enough on its own.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -746,13 +746,13 @@ def test_adjudicate_denies_when_evidence_does_not_reference_incident(
 
 
 def test_adjudicate_accepts_evidence_referencing_destination_instead_of_tx_hash(
-    direct_vm, direct_deploy, direct_alice
+    direct_vm, arbiter_deploy, direct_alice
 ):
     """Evidence naming the drain's destination address (e.g. a known
     scammer address tracked by a scam database) authenticates the incident
     just as well as quoting the raw transaction hash would.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -779,14 +779,14 @@ def test_adjudicate_accepts_evidence_referencing_destination_instead_of_tx_hash(
 
 
 def test_adjudicate_denies_when_evidence_does_not_mention_wallet(
-    direct_vm, direct_deploy, direct_alice
+    direct_vm, arbiter_deploy, direct_alice
 ):
     """Authoritative check: evidence that never mentions the claimed wallet
     address anywhere can't be authenticated as being about this wallet, so
     it's auto-denied without consulting the LLM - a generic or copy-pasted
     URL isn't enough.
     """
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -810,10 +810,10 @@ def test_adjudicate_denies_when_evidence_does_not_mention_wallet(
     assert claim.verdict_confidence == 100
 
 
-def test_get_claim_status_and_claimant(direct_vm, direct_deploy, direct_alice):
+def test_get_claim_status_and_claimant(direct_vm, arbiter_deploy, direct_alice):
     """Narrow getters used by downstream consumers (e.g.
     RecoveryReleaseVault) - see contracts/recovery_release_vault.py."""
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -830,24 +830,24 @@ def test_get_claim_status_and_claimant(direct_vm, direct_deploy, direct_alice):
     assert contract.get_claim_status(claim_id) == "approved"
 
 
-def test_get_claim_status_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_get_claim_status_unknown_claim_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
 
     with direct_vm.expect_revert("Claim not found"):
         contract.get_claim_status("nonexistent")
 
 
-def test_get_claim_claimant_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_get_claim_claimant_unknown_claim_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
 
     with direct_vm.expect_revert("Claim not found"):
         contract.get_claim_claimant("nonexistent")
 
 
-def test_adjudicate_already_adjudicated_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_adjudicate_already_adjudicated_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -861,16 +861,16 @@ def test_adjudicate_already_adjudicated_fails(direct_vm, direct_deploy, direct_a
         contract.adjudicate(claim_id)
 
 
-def test_adjudicate_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_adjudicate_unknown_claim_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
 
     with direct_vm.expect_revert("Claim not found"):
         contract.adjudicate("nonexistent")
 
 
-def test_get_claims_by_address(direct_vm, direct_deploy, direct_alice, direct_bob):
-    contract = direct_deploy(CONTRACT)
+def test_get_claims_by_address(direct_vm, arbiter_deploy, direct_alice, direct_bob):
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
     bob = to_hex(direct_bob)
 
@@ -889,18 +889,18 @@ def test_get_claims_by_address(direct_vm, direct_deploy, direct_alice, direct_bo
     assert len(bob_claims) == 0
 
 
-def test_get_claims_for_wallet_unknown_returns_empty(direct_deploy):
-    contract = direct_deploy(CONTRACT)
+def test_get_claims_for_wallet_unknown_returns_empty(arbiter_deploy):
+    contract = arbiter_deploy(CONTRACT)
     assert contract.get_claims_for_wallet("eth:0xdoesnotexist") == []
 
 
-def test_get_all_claims_empty(direct_deploy):
-    contract = direct_deploy(CONTRACT)
+def test_get_all_claims_empty(arbiter_deploy):
+    contract = arbiter_deploy(CONTRACT)
     assert contract.get_all_claims() == {}
 
 
-def test_appeal_denied_claim_resets_to_pending(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_appeal_denied_claim_resets_to_pending(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -925,8 +925,8 @@ def test_appeal_denied_claim_resets_to_pending(direct_vm, direct_deploy, direct_
     assert claim.appeal_count == 1
 
 
-def test_appeal_then_readjudicate_to_approved(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_appeal_then_readjudicate_to_approved(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -950,8 +950,8 @@ def test_appeal_then_readjudicate_to_approved(direct_vm, direct_deploy, direct_a
     assert contract.get_claims_for_wallet(WALLET)[0].id == claim_id
 
 
-def test_appeal_by_non_claimant_fails(direct_vm, direct_deploy, direct_alice, direct_bob):
-    contract = direct_deploy(CONTRACT)
+def test_appeal_by_non_claimant_fails(direct_vm, arbiter_deploy, direct_alice, direct_bob):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -966,8 +966,8 @@ def test_appeal_by_non_claimant_fails(direct_vm, direct_deploy, direct_alice, di
         contract.submit_appeal(claim_id, "https://evidence.example/stronger", "statement", DRAIN_TX_HASH)
 
 
-def test_appeal_approved_claim_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_appeal_approved_claim_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -981,8 +981,8 @@ def test_appeal_approved_claim_fails(direct_vm, direct_deploy, direct_alice):
         contract.submit_appeal(claim_id, "https://evidence.example/more", "more evidence", DRAIN_TX_HASH)
 
 
-def test_appeal_pending_claim_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_appeal_pending_claim_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -994,16 +994,16 @@ def test_appeal_pending_claim_fails(direct_vm, direct_deploy, direct_alice):
         contract.submit_appeal(claim_id, "https://evidence.example/more", "more evidence", DRAIN_TX_HASH)
 
 
-def test_appeal_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_appeal_unknown_claim_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
 
     with direct_vm.expect_revert("Claim not found"):
         contract.submit_appeal("nonexistent", "https://evidence.example/more", "statement", DRAIN_TX_HASH)
 
 
-def test_appeal_max_limit_reached_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_appeal_max_limit_reached_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
     alice = to_hex(direct_alice)
 
@@ -1032,8 +1032,8 @@ def test_appeal_max_limit_reached_fails(direct_vm, direct_deploy, direct_alice):
 # Challenge / resolve_challenge
 # ---------------------------------------------------------------------------
 
-def test_challenge_claim_freezes_approved_claim(direct_vm, direct_deploy, direct_alice, direct_bob):
-    contract = direct_deploy(CONTRACT)
+def test_challenge_claim_freezes_approved_claim(direct_vm, arbiter_deploy, direct_alice, direct_bob):
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
 
     direct_vm.sender = direct_alice
@@ -1056,8 +1056,8 @@ def test_challenge_claim_freezes_approved_claim(direct_vm, direct_deploy, direct
     assert contract.get_claim_status(claim_id) == "challenged"
 
 
-def test_challenge_only_works_on_approved_claim(direct_vm, direct_deploy, direct_alice, direct_bob):
-    contract = direct_deploy(CONTRACT)
+def test_challenge_only_works_on_approved_claim(direct_vm, arbiter_deploy, direct_alice, direct_bob):
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
 
     direct_vm.sender = direct_alice
@@ -1070,8 +1070,8 @@ def test_challenge_only_works_on_approved_claim(direct_vm, direct_deploy, direct
         contract.challenge_claim(claim_id, "reason")
 
 
-def test_challenge_same_address_twice_fails(direct_vm, direct_deploy, direct_alice, direct_bob):
-    contract = direct_deploy(CONTRACT)
+def test_challenge_same_address_twice_fails(direct_vm, arbiter_deploy, direct_alice, direct_bob):
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
 
     direct_vm.sender = direct_alice
@@ -1096,11 +1096,11 @@ def test_challenge_same_address_twice_fails(direct_vm, direct_deploy, direct_ali
 
 
 def test_challenge_max_limit_reached_fails(
-    direct_vm, direct_deploy, direct_alice, direct_bob, direct_charlie
+    direct_vm, arbiter_deploy, direct_alice, direct_bob, direct_charlie
 ):
     from gltest.direct.loader import create_address
 
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
     dave = create_address("dave")
     eve = create_address("eve")
@@ -1127,8 +1127,8 @@ def test_challenge_max_limit_reached_fails(
         contract.challenge_claim(claim_id, "one more")
 
 
-def test_challenge_unknown_claim_fails(direct_vm, direct_deploy, direct_bob):
-    contract = direct_deploy(CONTRACT)
+def test_challenge_unknown_claim_fails(direct_vm, arbiter_deploy, direct_bob):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_bob
 
     with direct_vm.expect_revert("Claim not found"):
@@ -1136,9 +1136,9 @@ def test_challenge_unknown_claim_fails(direct_vm, direct_deploy, direct_bob):
 
 
 def test_resolve_challenge_overrules_back_to_approved(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
 
     direct_vm.sender = direct_alice
@@ -1163,12 +1163,12 @@ def test_resolve_challenge_overrules_back_to_approved(
 
 
 def test_resolve_challenge_confirms_denial_and_frees_wallet(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
     """If re-adjudication no longer approves, the wallet's approved-claim
     slot must be freed - a challenged-and-overturned claim doesn't get to
     permanently occupy it."""
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
     bob = to_hex(direct_bob)
 
@@ -1200,9 +1200,9 @@ def test_resolve_challenge_confirms_denial_and_frees_wallet(
 
 
 def test_resolve_challenge_by_non_claimant_fails(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
 
     direct_vm.sender = direct_alice
@@ -1219,8 +1219,8 @@ def test_resolve_challenge_by_non_claimant_fails(
         contract.resolve_challenge(claim_id)
 
 
-def test_resolve_challenge_when_not_challenged_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_resolve_challenge_when_not_challenged_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
 
     direct_vm.sender = direct_alice
@@ -1234,8 +1234,8 @@ def test_resolve_challenge_when_not_challenged_fails(direct_vm, direct_deploy, d
         contract.resolve_challenge(claim_id)
 
 
-def test_resolve_challenge_unknown_claim_fails(direct_vm, direct_deploy, direct_alice):
-    contract = direct_deploy(CONTRACT)
+def test_resolve_challenge_unknown_claim_fails(direct_vm, arbiter_deploy, direct_alice):
+    contract = arbiter_deploy(CONTRACT)
     direct_vm.sender = direct_alice
 
     with direct_vm.expect_revert("Claim not found"):
@@ -1243,9 +1243,9 @@ def test_resolve_challenge_unknown_claim_fails(direct_vm, direct_deploy, direct_
 
 
 def test_submit_appeal_on_challenged_claim_fails(
-    direct_vm, direct_deploy, direct_alice, direct_bob
+    direct_vm, arbiter_deploy, direct_alice, direct_bob
 ):
-    contract = direct_deploy(CONTRACT)
+    contract = arbiter_deploy(CONTRACT)
     alice = to_hex(direct_alice)
 
     direct_vm.sender = direct_alice

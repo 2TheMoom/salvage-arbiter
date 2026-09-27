@@ -19,8 +19,11 @@ spam-retrying an unchanged submission.
 
 Ownership itself is settled by cryptography, not AI judgment: `submit_claim` requires
 an EIP-191 signature proving control of the drained wallet's private key, verified via
-a pure-Python secp256k1 ECDSA recovery running identically on every validator (no
-external RPC dependency for this check — see "Design notes" below for why). The LLM's
+a cross-contract call to [`contracts/signature_verifier.py`](contracts/signature_verifier.py)
+— a small, stateless sibling contract holding the pure-Python secp256k1 ECDSA recovery
+(no external RPC dependency for this check — see "Design notes" below for why), split
+out purely to keep RecoveryArbiter's own source under Bradbury's undocumented deploy
+gas ceiling (also in "Design notes"). The LLM's
 job is judging whether the claimant's stated circumstances are coherent and consistent
 with an independently-fetched, authoritative on-chain balance fact, not re-litigating
 identity. A wallet can only ever have one approved claim: `submit_claim` rejects new
@@ -38,54 +41,72 @@ anything for actual key theft either, since only the thief could then sign at al
 `submit_claim` also takes a `drain_tx_hash`: the specific transaction the claimant says
 drained their wallet. `adjudicate` fetches that transaction *and its receipt* and
 auto-denies, before ever consulting the LLM, unless it: exists, was sent from the
-claimed wallet, succeeded on-chain (didn't revert), and actually moved an asset (either
-non-zero native value or at least one emitted event log, so an ERC-20 transfer counts
-too - checking only the sender, as an earlier version of this contract did, let a
-claimant cite *any* transaction they'd ever sent, including a zero-value, failed, or
-unrelated one, as "proof" a drain happened). The LLM only ever judges claims backed by
-a confirmed, successful, value-moving drain, not a bare citation. The evidence itself
-is authenticated in two steps the same way: first, if the fetched `evidence_url`
-content never mentions the claimed wallet address anywhere, the claim is auto-denied -
-a generic or copy-pasted URL isn't enough. Second, it must also reference the specific
+claimed wallet, succeeded on-chain (didn't revert), and actually moved an asset - either
+non-zero native value, or a **genuine ERC-20/721 Transfer event log naming the claimed
+wallet as sender**, decoded from the raw topics/data, not just "a log was emitted"
+(an earlier version accepted any log at all, which a steward flagged: an `Approval`, an
+unrelated `Transfer`, or any other log-emitting call would have passed just as easily).
+The decoded token and amount are bound to the claim - computed independently by every
+validator from on-chain facts, not supplied by the claimant - so a downstream consumer
+like RecoveryReleaseVault can check its own release against what was actually verified,
+not just a bare `"approved"` status. The LLM only ever judges claims backed by a
+confirmed, successful, value-moving drain, not a bare citation - and its job is judging
+whether that *specific, already-confirmed* movement was unauthorized (phishing/
+malicious-approval), not whether it happened at all. The evidence itself is
+authenticated in two steps the same way: first, if the fetched `evidence_url` content
+never mentions the claimed wallet address anywhere, the claim is auto-denied - a
+generic or copy-pasted URL isn't enough. Second, it must also reference the specific
 incident - either the drain transaction's hash or its destination address - not just
 the wallet in general, so evidence that's merely *about* the wallet (but not about this
-particular drain) doesn't pass either. Both the destination address and the
-transaction's value/block are then handed to validators as authoritative on-chain
-facts alongside the evidence.
+particular drain) doesn't pass either.
+
+An approved claim isn't final: any address can `challenge_claim` it once (capped at
+`MAX_CHALLENGES = 3`, rate-limited per address, not bonded, since this contract never
+moves value itself), freezing it out of `"approved"` status - which alone blocks
+RecoveryReleaseVault's `release()` - until the original claimant calls
+`resolve_challenge` to trigger a full re-adjudication. This gives anyone who spots a
+wrongly-approved claim (e.g. a "drain" that was really a voluntary transfer the LLM
+misjudged) a way to stop a release before it happens, without RecoveryArbiter needing
+to know anything about what sits downstream.
 
 The attestation is also a real, consumable precondition, not just stored metadata:
 [`contracts/recovery_release_vault.py`](contracts/recovery_release_vault.py) is a
 working example downstream consumer. Anyone can deposit funds earmarked for a specific
 claim; `release()` calls RecoveryArbiter via `gl.get_contract_at(...)` and only pays out
-to the claim's claimant if `get_claim_status` reports `"approved"` - it never re-judges
-the claim itself. This is deliberately not Salvage's real production rescue router
-(which runs on other, non-GenLayer chains and holds real user funds); it's a small,
-independently deployable contract that proves the gating actually works.
+to the claim's claimant if `get_claim_status` reports `"approved"` **and** a verified
+drained asset/amount is bound to the claim - it never re-judges the claim itself, and
+it records that binding (`get_released_asset`/`get_released_amount`) so a real
+cross-chain router sizing an actual settlement has an authoritative, tamper-proof
+reference to check its own payout against. This is deliberately not Salvage's real
+production rescue router (which runs on other, non-GenLayer chains and holds real user
+funds); it's a small, independently deployable contract that proves the gating
+actually works.
 
 ## Live deployment
 Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
-- **RecoveryArbiter:** [`0x1eD87a20cD49a955Cc5686e9e18E1A592d3Cf194`](https://explorer-bradbury.genlayer.com/address/0x1eD87a20cD49a955Cc5686e9e18E1A592d3Cf194)
-- **RecoveryReleaseVault** (example downstream consumer): [`0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772`](https://explorer-bradbury.genlayer.com/address/0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772)
-- Verified via 86 passing direct-mode tests (`pytest tests/direct/`) across both
+- **SignatureVerifier:** `<pending redeploy>`
+- **RecoveryArbiter:** `<pending redeploy>`
+- **RecoveryReleaseVault** (example downstream consumer): `<pending redeploy>`
+- Verified via 109 passing direct-mode tests (`pytest tests/direct/`) across all three
   contracts, covering the drain-transaction check (including the reverted-tx and
-  no-asset-moved deny paths, and that a token-style drain with zero native value but a
-  logged event still passes), the two-step evidence-authentication check (wallet
-  mention, then incident-specific reference via tx hash or destination address), and
-  the vault's deposit/guard logic. `_fetch_tx_facts`'s parsing of `eth_getTransactionByHash`
-  and `eth_getTransactionReceipt` was also cross-checked against a real, current
-  transaction fetched live from the same public RPC this contract calls, confirming the
-  response shape assumptions (the `status`/`logs` fields) hold against production data,
-  not just hand-written mocks. The vault's cross-contract call to RecoveryArbiter isn't
-  reachable in direct mode (see "Design notes"), so the actual gating was verified live
-  against an earlier deployment of this same, unchanged vault code: a claim was
-  submitted and denied, funds were deposited into the vault for it, and `release()`
-  correctly read RecoveryArbiter's real on-chain status via `gl.get_contract_at` and
-  refused to pay out - proving the integration genuinely works, not just that the two
-  contracts compile against each other. `recovery_release_vault.py` itself is
-  byte-for-byte unchanged in this deployment (only the constructor's `arbiter_address`
-  points at the redeployed RecoveryArbiter above); a fresh end-to-end retest against the
-  new addresses was attempted but blocked by Bradbury RPC instability on deployment day
-  (rate limits and stale balance reads unrelated to this change - see "Design notes").
+  no-asset-moved deny paths, that a genuine Transfer log is required rather than any
+  log at all, and that a token-style drain with zero native value but a real Transfer
+  event still passes), the two-step evidence-authentication check (wallet mention, then
+  incident-specific reference via tx hash or destination address), the challenge/
+  resolve_challenge path, and the vault's deposit/guard logic. `_fetch_tx_facts`'s
+  parsing of `eth_getTransactionByHash` and `eth_getTransactionReceipt` was also
+  cross-checked against a real, current transaction fetched live from the same public
+  RPC this contract calls, confirming the response shape assumptions (the
+  `status`/`logs` fields) hold against production data, not just hand-written mocks.
+  RecoveryArbiter's cross-contract call to SignatureVerifier is genuinely exercised in
+  direct mode via a custom dispatch hook (see "Design notes") - every signature-related
+  test runs real ECDSA recovery through the actual verifier contract, not a stub. The
+  vault's cross-contract call to RecoveryArbiter (a stateful contract, unlike the
+  verifier) still isn't reachable in direct mode, so that gating continues to be
+  verified live: a claim was submitted and denied, funds were deposited into the vault
+  for it, and `release()` correctly read RecoveryArbiter's real on-chain status via
+  `gl.get_contract_at` and refused to pay out - proving the integration genuinely
+  works, not just that the two contracts compile against each other.
 - **Known limitation:** the *approved* payout path - `release()` actually transferring
   escrowed funds to a claimant - could not be verified live, because `emit_transfer`
   does not currently deliver value on Bradbury testnet at all, even from a minimal
@@ -123,6 +144,21 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   consensus failures. A pure-Python secp256k1 implementation has no such failure
   mode — every validator runs identical bytecode on identical input and always agrees
   — so it replaced the RPC call entirely for this specific, security-critical check.
+- **Bradbury has a fixed, undocumented ~16.78M gas-per-transaction deploy ceiling.**
+  RecoveryArbiter's `adjudicate()` grew to include a genuine ERC-20/721 Transfer-log
+  decoder and a challenge/re-adjudication path (closing a real steward-flagged gap:
+  "any log-emitting transaction can be treated as a drain"), pushing the combined
+  source past ~32KB and past this cap — confirmed as an intentional `zksync-os` chain
+  config value (`DEFAULT_MAX_TX_GAS_LIMIT`, EIP-7825 alignment), not a bug, via
+  [genvm-manager#46](https://github.com/genlayerlabs/genvm-manager/issues/46). Python
+  Intelligent Contracts need roughly 730 gas per byte of source to deploy, so anything
+  over ~20-22KB is at real risk regardless of gas limit requested, and
+  `eth_estimateGas` doesn't warn about it (simulation skips the check). The fix:
+  `signature_verifier.py` was split out as its own stateless contract, since it has
+  zero dependency on RecoveryArbiter's state - a cross-contract `.view()` call from a
+  plain write method (not from within a nondet block, which GenVM forbids for
+  cross-contract calls: `SystemError: 6`), the exact pattern RecoveryReleaseVault
+  already proved works. This got RecoveryArbiter back under ~22KB with real margin.
 - **The `genlayer` CLI's `--args` parser is not schema-aware.** While debugging the
   above, a raw hex-string signature passed via `genlayer write ... --args` arrived
   inside the contract as a Python `int`, not a `str` — the CLI guesses argument types
@@ -171,14 +207,24 @@ Deployed and verified on **GenLayer Bradbury Testnet** (chain ID 4221):
   it let a `direct_vm.value = ...` call through to a non-payable method without
   complaint - so this could only be caught by an actual live deployment, not by the
   otherwise-thorough direct-mode suite.
-- **Cross-contract calls aren't reachable in this project's direct-mode test harness.**
-  `gl.get_contract_at(...)` requires a dispatch hook (`_gl_call_hook`) that the harness
-  only wires up for its heavier `glsim` mode, not plain `direct_deploy`. RecoveryReleaseVault's
-  tests cover everything reachable without one (deposit accounting, the guards `release()`
-  checks before it calls out); the actual cross-contract read-and-gate was verified live
-  instead, deliberately against a claim proven `denied`, not `approved` - reaching a real
-  `approved` verdict needs a wallet with genuine on-chain drain history, which a freshly
-  generated test keypair can't have.
+- **Cross-contract calls now work in this project's direct-mode tests, via a custom
+  dispatch hook.** `gl.get_contract_at(...)` calls compile to a `CallContract` request
+  that gltest's mock WASI layer only handles if `VMContext._gl_call_hook` is set
+  (otherwise it's silently a no-op) - undocumented and unused by this project until
+  `submit_claim`'s new cross-contract signature check needed it for real coverage. The
+  `arbiter_deploy` fixture in `tests/direct/conftest.py` deploys SignatureVerifier,
+  captures its address, and installs a hook that intercepts exactly that call and
+  routes it to the real, locally-deployed verifier instance - genuine ECDSA recovery
+  runs in every test, not a stub. One real gotcha along the way: `genlayer.gl.
+  genvm_contracts` tracks a process-global `__known_contract__` (`Contract.
+  __init_subclass__` enforces "only one Contract subclass per module"), which isn't
+  reset between two sequential `direct_deploy` calls within the same `vm.activate()`
+  session - deploying a second contract raised `TypeError: only one contract is
+  allowed` until the fixture explicitly resets it between deploys (safe, since it only
+  gates future class definitions, not the already-constructed first instance).
+  RecoveryReleaseVault's own cross-contract call (to RecoveryArbiter, a stateful
+  contract, not this stateless verifier) still isn't covered this way and remains
+  verified live only - see the next note.
 
 This started from GenLayer's official
 [project boilerplate](https://github.com/genlayerlabs/genlayer-project-boilerplate);
@@ -188,9 +234,14 @@ the original `football_bets.py` sample contract and its tests are kept around un
 
 ## What's included
 - `contracts/recovery_arbiter.py` — the RecoveryArbiter Intelligent Contract
+- `contracts/signature_verifier.py` — SignatureVerifier, a small stateless sibling
+  holding the EIP-191/secp256k1 ownership-proof logic, called cross-contract from
+  `submit_claim` (split out to clear Bradbury's deploy gas ceiling - see "Design notes")
 - `contracts/recovery_release_vault.py` — RecoveryReleaseVault, a working example
   downstream consumer of RecoveryArbiter's attestation
-- `tests/direct/test_recovery_arbiter.py` — direct-mode tests (in-memory, mocked web/LLM)
+- `tests/direct/test_recovery_arbiter.py` — direct-mode tests (in-memory, mocked web/LLM,
+  real cross-contract signature verification via a custom dispatch hook)
+- `tests/direct/test_signature_verifier.py` — direct-mode tests for the verifier in isolation
 - `tests/direct/test_recovery_release_vault.py` — direct-mode tests for the vault
 - **Contract linting** — static analysis to catch common contract issues before deployment
 - **CI pipeline** — GitHub Actions workflow for linting and direct tests
@@ -264,10 +315,13 @@ Direct mode features used in these tests:
 - `direct_vm.expect_revert("message")` — assert expected failures
 - `direct_vm.clear_mocks()` — reset mocks between calls
 
-### 4. Deploy the contract
+### 4. Deploy the contracts
 
 1. Choose your network: `genlayer network`
-2. Deploy: `genlayer deploy` (runs the script in `/deploy/deployScript.ts`)
+2. Deploy: `genlayer deploy` (runs the script in `/deploy/deployScript.ts`, which deploys
+   SignatureVerifier, then RecoveryArbiter with its address, then RecoveryReleaseVault
+   with RecoveryArbiter's address, in that order - each constructor depends on the
+   previous contract's address)
 
 ### 5. Run integration tests
 
@@ -298,8 +352,10 @@ The app will be available at http://localhost:3000/.
 1. **`submit_claim(drained_wallet, evidence_url, statement, signature, drain_tx_hash)`**
    — a claimant registers a claim over an (external-chain) drained wallet address, with
    an EIP-191 signature proving control of it, the transaction they say drained it, plus
-   public evidence and their case. Returns a `claim_id`; fails if the signature doesn't
-   recover to `drained_wallet`, or if that wallet already has an approved claim.
+   public evidence and their case. Verifies the signature via a cross-contract call to
+   SignatureVerifier (`gl.get_contract_at(self.verifier_address).view().verify_ownership(...)`).
+   Returns a `claim_id`; fails if the signature doesn't recover to `drained_wallet`, or
+   if that wallet already has an approved claim.
 2. **`adjudicate(claim_id)`** — first re-checks whether `drained_wallet` already has a
    *different* approved claim (possible if two claims were filed for the same wallet
    while both were still pending) and auto-denies this one if so, without calling the
@@ -312,23 +368,35 @@ The app will be available at http://localhost:3000/.
    (validators agree on the `verdict` field even if reasoning text differs). Sets
    `status` to `approved`, `denied`, or
    `insufficient`, plus a `confidence` (0–100) and `reasoning`.
-3. **`submit_appeal(claim_id, evidence_url, statement, drain_tx_hash)`** — the original
+3. **`challenge_claim(claim_id, reason)`** / **`resolve_challenge(claim_id)`** —
+   permissionless: any address can freeze a wrongly-approved claim (capped at
+   `MAX_CHALLENGES = 3`, one per address); the original claimant then calls
+   `resolve_challenge` to trigger a full re-adjudication, which either restores
+   `"approved"` or frees the wallet's approved-claim slot for a new claim.
+4. **`submit_appeal(claim_id, evidence_url, statement, drain_tx_hash)`** — the original
    claimant only, and only on a `denied`/`insufficient` claim, can replace the
    evidence/statement/drain citation and reset `status` back to `pending` (clearing the
    old verdict) so `adjudicate` can reconsider. Capped at `MAX_APPEALS = 3` per claim to
    stop someone from spam-retrying an unchanged submission hoping the LLM's
    non-determinism eventually flips the result.
-4. **`get_claim` / `get_claims_by_address` / `get_claims_for_wallet` / `get_all_claims`**
-   — read back claims and verdicts for an off-chain system to act on. `get_claim_status`
-   and `get_claim_claimant` are narrower, primitive-typed companions meant for downstream
-   consumers making a cross-contract call (see RecoveryReleaseVault below) - trivial to
-   decode, unlike the full `Claim` dataclass.
-5. **RecoveryReleaseVault** (`contracts/recovery_release_vault.py`) — a separate,
+5. **`get_claim` / `get_claims_by_address` / `get_claims_for_wallet` / `get_all_claims`**
+   — read back claims and verdicts for an off-chain system to act on. `get_claim_status`,
+   `get_claim_claimant`, `get_claim_drained_asset`, and `get_claim_drained_amount` are
+   narrower, primitive-typed companions meant for downstream consumers making a
+   cross-contract call (see RecoveryReleaseVault below) - trivial to decode, unlike the
+   full `Claim` dataclass.
+6. **SignatureVerifier** (`contracts/signature_verifier.py`) — a separate, independently
+   deployed stateless contract holding just `verify_ownership(drained_wallet, claimant,
+   signature) -> bool`. `submit_claim` calls it cross-contract instead of embedding the
+   secp256k1 math locally, purely to keep RecoveryArbiter's own source under Bradbury's
+   deploy gas ceiling (see "Design notes").
+7. **RecoveryReleaseVault** (`contracts/recovery_release_vault.py`) — a separate,
    independently deployed example consumer. `deposit_for_claim(claim_id)` escrows value
    for a specific claim; `release(claim_id)` calls RecoveryArbiter's `get_claim_status`
    via `gl.get_contract_at(...)` and only pays the deposit out to `get_claim_claimant`
-   if the status is `"approved"` - proving the attestation can actually gate a fund
-   release, not just sit as unused metadata.
+   if the status is `"approved"` **and** a verified asset/amount is bound to the claim -
+   proving the attestation can actually gate a fund release, not just sit as unused
+   metadata.
 
 ### A CLI gotcha worth knowing
 `genlayer write/call --args` auto-coerces any bare `0x` + 40-hex-char argument into a
