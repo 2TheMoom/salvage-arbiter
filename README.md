@@ -86,7 +86,7 @@ actually works.
 Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
 - **SignatureVerifier:** [`0x1C3653cE0C5eD5659DB6ead99Ce221A027e80b23`](https://explorer-bradbury.genlayer.com/address/0x1C3653cE0C5eD5659DB6ead99Ce221A027e80b23)
 - **RecoveryArbiter:** [`0x3e5515cFd2CdFed30712b1b958e57D09143943b3`](https://explorer-bradbury.genlayer.com/address/0x3e5515cFd2CdFed30712b1b958e57D09143943b3)
-- **RecoveryReleaseVault** (example downstream consumer): [`0x305a2eb4A93A2e76BC620ab85C85C76a080e000d`](https://explorer-bradbury.genlayer.com/address/0x305a2eb4A93A2e76BC620ab85C85C76a080e000d)
+- **RecoveryReleaseVault** (example downstream consumer): [`0x0E5F3995B5EfB95854290F5c338f2cDF3cE71Bd1`](https://explorer-bradbury.genlayer.com/address/0x0E5F3995B5EfB95854290F5c338f2cDF3cE71Bd1)
 - **A real gotcha hit redeploying this set:** `genlayer deploy --contract X --args Y`
   (the bare CLI path, as opposed to this repo's own `deploy/deployScript.ts`) mis-typed
   a plain 40-hex-char address string as an `Address` calldata value instead of the `str`
@@ -129,17 +129,21 @@ Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
   works, not just that the two contracts compile against each other. That specific
   cycle hasn't been re-run against the current addresses yet (see the gotcha note
   above) - the vault's `deposit_for_claim`/`release` logic is unchanged since then.
-- **Known limitation:** the *approved* payout path - `release()` actually transferring
-  escrowed funds to a claimant - could not be verified live, because `emit_transfer`
-  does not currently deliver value on Bradbury testnet at all, even from a minimal
-  contract with zero conditional logic. This is a confirmed GenLayer platform bug, not
-  a flaw in this contract: see
-  [genlayerlabs/genvm-manager#20](https://github.com/genlayerlabs/genvm-manager/issues/20),
-  where a from-scratch repro isolating the issue was contributed. RecoveryReleaseVault's
-  payout code is structurally identical to GenLayer Studio's own `faucet.py` example and
-  follows the documented pattern exactly; the gating logic that decides *whether* to pay
-  is fully verified (above), only the final on-chain transfer dispatch is currently
-  blocked by GenLayer's own infrastructure.
+- **Root-caused and fixed (2026-10-01), not actually a platform bug.** `release()`'s
+  payout previously used `gl.get_contract_at(claimant).emit_transfer(value=amount)` -
+  an internal Intelligent-Contract dispatch message. Claimants are EOAs, and for an
+  address holding no contract code that message is resolved by a handler that doesn't
+  reliably reach validator majority: the payout can leave the vault and be credited to
+  nobody, intermittently. This is what was previously misattributed to
+  [genlayerlabs/genvm-manager#20](https://github.com/genlayerlabs/genvm-manager/issues/20)
+  as an unconfirmed platform bug, cross-project (Waypoint, Tote, AgentEscrow all had the
+  same pattern). The actual fix: `gl.evm.contract_interface` (a `Payee` class with empty
+  `View`/`Write` inner classes, called as `Payee(claimant).emit_transfer(value=amount)`)
+  emits a genuine external chain-layer value transfer instead - the SDK's documented
+  primitive for paying an EOA, corroborated via GenLayer's own SDK docs and a real
+  third-party repo's explanatory docstring. `release()` also now transfers before
+  marking a claim `released`, so a reverted transfer can never permanently strand a
+  claim as paid-but-unpaid. 109 direct-mode tests still pass, lint clean.
 - Previous RecoveryArbiter deployments (superseded, kept for history):
   [pre-split, pre-challenge-path](https://explorer-bradbury.genlayer.com/address/0x1eD87a20cD49a955Cc5686e9e18E1A592d3Cf194)
   (the version this README's Live deployment section pointed at before the
@@ -159,7 +163,9 @@ Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
   [original, pre-appeal](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03).
   Previous RecoveryReleaseVault deployments (superseded): pointed at the pre-split
   arbiter above: [`0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772`](https://explorer-bradbury.genlayer.com/address/0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772);
-  pointed at the pre-asset-movement-check arbiter: [`0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05`](https://explorer-bradbury.genlayer.com/address/0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05).
+  pointed at the pre-asset-movement-check arbiter: [`0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05`](https://explorer-bradbury.genlayer.com/address/0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05);
+  pre-Payee-fix, same arbiter as current: [`0x305a2eb4A93A2e76BC620ab85C85C76a080e000d`](https://explorer-bradbury.genlayer.com/address/0x305a2eb4A93A2e76BC620ab85C85C76a080e000d)
+  (used `gl.get_contract_at()` for payouts - see "Root-caused and fixed" below).
 
 ### Design notes
 - **Signature verification uses no external RPC.** An earlier version called a public

@@ -25,6 +25,26 @@ authoritative, tamper-proof reference to check its own payout against.
 from genlayer import *
 
 
+@gl.evm.contract_interface
+class Payee:
+    """Declared recipient of a value transfer that lives on the chain
+    layer. Claimants are EOAs; paying an EOA is an *external* message
+    (IC -> chain layer), a different primitive from the internal IC -> IC
+    message gl.get_contract_at() produces - the latter is resolved by the
+    GenVM contract dispatcher and, for an address holding no Intelligent
+    Contract, is settled by a handler that never reaches validator
+    majority: the payout leaves this contract and is credited to nobody.
+    gl.evm.contract_interface emits a pure value transfer instead. The
+    empty View/Write classes are deliberate - no method is ever called on
+    the recipient, only value is moved."""
+
+    class View:
+        pass
+
+    class Write:
+        pass
+
+
 class RecoveryReleaseVault(gl.Contract):
     """Escrows deposits per claim_id and releases them to the claimant
     only once RecoveryArbiter approves that claim AND has a verified
@@ -80,10 +100,13 @@ class RecoveryReleaseVault(gl.Contract):
 
         claimant = arbiter.view().get_claim_claimant(claim_id)
 
+        # Transfer before marking released: if the transfer reverts, the
+        # whole call reverts with it, so released[] never flips and a
+        # failed payout never permanently consumes the claim.
+        Payee(claimant).emit_transfer(value=amount)
         self.released[claim_id] = True
         self.released_asset[claim_id] = drained_asset
         self.released_amount[claim_id] = drained_amount
-        gl.get_contract_at(claimant).emit_transfer(value=amount)
 
     @gl.public.view
     def get_released_asset(self, claim_id: str) -> str:
