@@ -60,6 +60,13 @@ export function getContractAddress(): string {
 }
 
 /**
+ * Get the RecoveryReleaseVault address (optional: the Vault tab is hidden without it)
+ */
+export function getVaultAddress(): string {
+  return process.env.NEXT_PUBLIC_VAULT_ADDRESS || "";
+}
+
+/**
  * Check if MetaMask is installed
  */
 export function isMetaMaskInstalled(): boolean {

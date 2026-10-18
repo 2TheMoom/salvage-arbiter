@@ -4,6 +4,7 @@ import { User } from "lucide-react";
 import { Navbar } from "@/components/Navbar";
 import { WalletDetailsCard } from "@/components/WalletDetailsCard";
 import { MyClaimsPanel } from "@/components/MyClaimsPanel";
+import { MyVaultDeposits } from "@/components/vault/MyVaultDeposits";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/lib/genlayer/wallet";
 
@@ -36,6 +37,7 @@ export default function ProfilePage() {
             <>
               <WalletDetailsCard />
               <MyClaimsPanel />
+              <MyVaultDeposits />
             </>
           )}
         </div>

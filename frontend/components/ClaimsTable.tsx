@@ -10,6 +10,7 @@ import { AddressDisplay } from "./AddressDisplay";
 import { AppealModal } from "./AppealModal";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
+import { VaultChip } from "./vault/VaultChip";
 import type { Claim } from "@/lib/contracts/types";
 import { MAX_APPEALS } from "@/lib/contracts/types";
 
@@ -213,6 +214,8 @@ function ClaimRow({ claim, currentAddress, isConnected, isWalletLoading, onAdjud
             )}
           </Button>
         )}
+
+        <VaultChip claimId={claim.id} />
 
         {canAppeal && (
           <Button

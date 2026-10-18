@@ -26,3 +26,28 @@ export interface TransactionReceipt {
   blockNumber?: number;
   [key: string]: any;
 }
+
+export type VaultPhase = "open" | "queued" | "decided" | "settled";
+
+/** The vault's challenge window, in seconds. Mirrors CHALLENGE_WINDOW in contracts/recovery_release_vault.py. */
+export const VAULT_CHALLENGE_WINDOW_SECONDS = 3600;
+
+export interface VaultRelease {
+  phase: VaultPhase;
+  claimant: string;
+  asset: string;
+  boundAmount: bigint;
+  challenges: number;
+  queuedAt: number;
+  releaseAt: number;
+  pay: bigint;
+}
+
+export interface VaultAccounting {
+  balance: bigint;
+  totalReceived: bigint;
+  totalScheduled: bigint;
+  unscheduled: bigint;
+  inFlight: bigint;
+  shortfall: bigint;
+}

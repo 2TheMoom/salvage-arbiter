@@ -2,16 +2,20 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { FileCheck2, ShieldCheck } from "lucide-react";
 import { AccountPanel } from "./AccountPanel";
 import { SubmitClaimModal } from "./SubmitClaimModal";
 import { useClaims } from "@/lib/hooks/useRecoveryArbiter";
 import { Logo, LogoMark } from "./Logo";
+import { getVaultAddress } from "@/lib/genlayer/client";
 
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const { data: claims } = useClaims();
+  const pathname = usePathname();
+  const hasVault = !!getVaultAddress();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -102,8 +106,27 @@ export function Navbar() {
                 </div>
               </Link>
 
-              {/* Center: Stats */}
+              {/* Center: tabs and stats */}
               <div className="hidden md:flex items-center gap-2">
+                {hasVault && (
+                  <nav className="flex items-center gap-1 mr-2" aria-label="Sections">
+                    {[
+                      { href: "/app", label: "Claims", active: pathname === "/app" },
+                      { href: "/app/vault", label: "Vault", active: pathname?.startsWith("/app/vault") },
+                    ].map((tab) => (
+                      <Link
+                        key={tab.href}
+                        href={tab.href}
+                        aria-current={tab.active ? "page" : undefined}
+                        className={`rounded-full px-3.5 py-1.5 text-sm transition-colors ${
+                          tab.active ? "bg-white/10 text-foreground" : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {tab.label}
+                      </Link>
+                    ))}
+                  </nav>
+                )}
                 <div className="stat-pill">
                   <FileCheck2 className="w-3.5 h-3.5 text-accent" />
                   <span className="font-semibold text-foreground">{totalClaims}</span>

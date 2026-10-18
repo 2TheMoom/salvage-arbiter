@@ -6,6 +6,7 @@ import { LandingNav } from "@/components/LandingNav";
 import { DeploymentBanner } from "@/components/DeploymentBanner";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/button";
+import { getVaultAddress } from "@/lib/genlayer/client";
 
 const STEPS = [
   {
@@ -29,6 +30,7 @@ const STEPS = [
 ];
 
 export default function LandingPage() {
+  const hasVault = !!getVaultAddress();
   return (
     <div className="min-h-screen flex flex-col">
       <LandingNav />
@@ -117,6 +119,44 @@ export default function LandingPage() {
             </div>
           </div>
         </section>
+
+        {/* Release vault */}
+        {hasVault && (
+          <section className="px-4 md:px-6 lg:px-8 pb-24">
+            <div className="max-w-6xl mx-auto flex flex-wrap items-center gap-10">
+              <div className="flex-[1_1_420px] min-w-0 space-y-4">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">New: release vault</span>
+                <h2 className="font-[family-name:var(--font-display)] text-3xl md:text-4xl font-semibold text-balance">
+                  A verdict that can gate real funds
+                </h2>
+                <p className="text-muted-foreground max-w-[52ch]">
+                  Anyone can deposit GEN against a claim. It is paid to the claimant only after the approval is
+                  final and a one-hour challenge window passes quietly. Denied claims send each deposit back to
+                  the person who made it.
+                </p>
+                <Link href="/app/vault" className="inline-flex items-center gap-2 font-semibold text-accent hover:underline">
+                  See the vault
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+              <div className="flex-[1_1_420px] min-w-0 brand-card p-6 space-y-3.5">
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-[#4aa3a8]" />
+                  <span className="font-semibold uppercase tracking-wider text-[#6fc0c4]">Reads the arbiter</span>
+                  <span className="text-muted-foreground">moves no money</span>
+                </div>
+                <div className="h-0.5 bg-[#4aa3a8]" />
+                <div className="h-0.5 bg-[#e9a93a]" />
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-[#e9a93a]" />
+                  <span className="font-semibold uppercase tracking-wider text-[#f0b955]">Moves money</span>
+                  <span className="text-muted-foreground">reads nothing</span>
+                </div>
+                <p className="text-sm text-muted-foreground">A decision and a payment never share a transaction.</p>
+              </div>
+            </div>
+          </section>
+        )}
 
         {/* Closing CTA */}
         <section className="px-4 md:px-6 lg:px-8 pb-24">
