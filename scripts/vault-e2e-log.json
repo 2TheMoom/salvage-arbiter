@@ -1,0 +1,465 @@
+{
+ "vaultM": "0x7583068e8BB892433484fe46BA7838370D9edBf8",
+ "mock": "0x38343d8701eB861b50B91687698295E15c3e3866",
+ "vaultR": "0x3312E96cDd618d090A72b89F5c1a3D713881Ff89",
+ "realArbiter": "0x3e5515cFd2CdFed30712b1b958e57D09143943b3",
+ "run": "mvdalleg",
+ "started": "2026-10-18T03:55:26.556Z",
+ "events": [
+  {
+   "t": "2026-10-18T03:55:40.775Z",
+   "scenario": "release",
+   "msg": "vault.deposit_for_claim 0x4d682041b0 exec=FINISHED_WITH_RETURN",
+   "fn": "deposit_for_claim",
+   "hash": "0x4d682041b0482dd4162933fbf514871ae8a592bd88da026939fd85a3de2cc8a1",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T03:55:40.788Z",
+   "scenario": "real",
+   "msg": "arbiter.submit_claim 0xfb8062aff0 exec=FINISHED_WITH_RETURN",
+   "fn": "submit_claim",
+   "hash": "0xfb8062aff03e11faa9f954b327de76fdb8a743059ce08c6bf8ef03124e45fb2a",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T03:55:53.353Z",
+   "scenario": "real",
+   "msg": "real claim filed on the real arbiter: f9f209d9484fe153a8...",
+   "claimId": "f9f209d9484fe153a85a82567e2f1ee17e4e96f6_0xe450227564966063fdd9f4c73556bce3c673ec76"
+  },
+  {
+   "t": "2026-10-18T03:55:53.994Z",
+   "scenario": "challenge",
+   "msg": "vault.deposit_for_claim 0xe16917719b exec=FINISHED_WITH_RETURN",
+   "fn": "deposit_for_claim",
+   "hash": "0xe16917719bf4aede74c4f0e7ddce216578e99fcfcee755e0f41dc532461246bc",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T03:55:59.349Z",
+   "scenario": "release",
+   "msg": "mock.put 0x34ffbe238e exec=FINISHED_WITH_RETURN",
+   "fn": "put",
+   "hash": "0x34ffbe238e300b7c84007ecfd7c0161b7f99149e3d2670d0323ad44d093da77a",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T03:56:07.002Z",
+   "scenario": "real",
+   "msg": "vault.deposit_for_claim 0x26f4862d31 exec=FINISHED_WITH_RETURN",
+   "fn": "deposit_for_claim",
+   "hash": "0x26f4862d319dbbb62ff553f2e6e312c7a43717883d326deb83d7975d7ad778a2",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T03:56:07.339Z",
+   "scenario": "challenge",
+   "msg": "vault.deposit_for_claim 0x8636fd06c3 exec=FINISHED_WITH_RETURN",
+   "fn": "deposit_for_claim",
+   "hash": "0x8636fd06c318dc1d184e632a7ffbd770ddde0de8ea9041d0027ad746e5488659",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T03:56:25.211Z",
+   "scenario": "release",
+   "msg": "queue_release refused: \"The arbiter could not be read, nothing recorded\" (0x9cf471bfab FINISHED_WITH_ERROR)",
+   "fn": "queue_release",
+   "hash": "0x9cf471bfab16cfd148d3b18ae51a75f298b0919d18c3d6291210ac7476ec2fa4",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "The arbiter could not be read, nothing recorded",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T03:56:43.910Z",
+   "scenario": "challenge",
+   "msg": "mock.put 0xa532604870 exec=FINISHED_WITH_RETURN",
+   "fn": "put",
+   "hash": "0xa5326048707aa4081943fb8973bbbaeb69d8523e3693a9c1b77ac21cc0b87a47",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T03:56:57.668Z",
+   "scenario": "real",
+   "msg": "queue_release refused: \"The arbiter could not be read, nothing recorded\" (0x2e4c188f74 FINISHED_WITH_ERROR)",
+   "fn": "queue_release",
+   "hash": "0x2e4c188f7401795b47d04843f98d24274d67d45c190d3c3b5ba314fac0caa89c",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "The arbiter could not be read, nothing recorded",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T04:25:47.289Z",
+   "scenario": "real",
+   "msg": "the real claim's submission FINALIZED 28.8 min after the wait began",
+   "label": "the real claim's submission",
+   "finalizedAfterMinutes": 28.8
+  },
+  {
+   "t": "2026-10-18T04:26:02.531Z",
+   "scenario": "real",
+   "msg": "queue_release refused: \"The arbiter has not approved this claim in finalized state (status: pending)\" (0x24f4dc1dfa FINISHED_WITH_ERROR)",
+   "fn": "queue_release",
+   "hash": "0x24f4dc1dfa61df170743604b7252669b72ff83904f5fd9941e47cc3affd57400",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "The arbiter has not approved this claim in finalized state (status: pending)",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T04:26:07.923Z",
+   "scenario": "release",
+   "msg": "the arbiter's approval FINALIZED 29.7 min after the wait began",
+   "label": "the arbiter's approval",
+   "finalizedAfterMinutes": 29.7
+  },
+  {
+   "t": "2026-10-18T04:26:20.896Z",
+   "scenario": "release",
+   "msg": "vault.queue_release 0x5de93cdc2c exec=FINISHED_WITH_RETURN",
+   "fn": "queue_release",
+   "hash": "0x5de93cdc2c3eb2b06dc7351521958e878e6d24507f83d3c0263af18d55c9b6ac",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T04:26:22.887Z",
+   "scenario": "real",
+   "msg": "refund refused: \"Refunds open when the claim is denied, or 30 days after your deposit\" (0xbb5a3a87d2 FINISHED_WITH_ERROR)",
+   "fn": "refund",
+   "hash": "0xbb5a3a87d21406e353b28564f1a3d4d92acd29ae3dc0c14253b870c650f2f9f9",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "Refunds open when the claim is denied, or 30 days after your deposit",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T04:26:33.547Z",
+   "scenario": "release",
+   "msg": "queued at 2026-10-18T04:26:08.000Z, release allowed from 2026-10-18T05:26:08.000Z",
+   "queuedAt": 1792297568,
+   "releaseAt": 1792301168
+  },
+  {
+   "t": "2026-10-18T04:26:35.598Z",
+   "scenario": "real",
+   "msg": "arbiter.adjudicate 0x6917bc53ab exec=FINISHED_WITH_RETURN",
+   "fn": "adjudicate",
+   "hash": "0x6917bc53abd5397d5474517ac072084e9fcc609e28436abaa2937d05130874e0",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T04:26:36.688Z",
+   "scenario": "real",
+   "msg": "the real arbiter's verdict: denied",
+   "verdict": "denied"
+  },
+  {
+   "t": "2026-10-18T04:26:48.392Z",
+   "scenario": "release",
+   "msg": "release refused: \"The challenge window is still open\" (0x759469a65e FINISHED_WITH_ERROR)",
+   "fn": "release",
+   "hash": "0x759469a65e38d4ab82c3f0444af3da62cba55e0002d751ed02534396c61f45fe",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "The challenge window is still open",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T04:26:48.393Z",
+   "scenario": "release",
+   "msg": "waiting 60 min for the challenge window to close"
+  },
+  {
+   "t": "2026-10-18T04:26:49.567Z",
+   "scenario": "challenge",
+   "msg": "the arbiter's approval FINALIZED 30.1 min after the wait began",
+   "label": "the arbiter's approval",
+   "finalizedAfterMinutes": 30.1
+  },
+  {
+   "t": "2026-10-18T04:27:02.386Z",
+   "scenario": "challenge",
+   "msg": "vault.queue_release 0x2bc879538e exec=FINISHED_WITH_RETURN",
+   "fn": "queue_release",
+   "hash": "0x2bc879538e15b50de89dce26fbe0aca4bf4d62afee4d6465ddb943d027b02791",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T04:27:16.497Z",
+   "scenario": "challenge",
+   "msg": "mock.put 0x4da3861ba4 exec=FINISHED_WITH_RETURN",
+   "fn": "put",
+   "hash": "0x4da3861ba417511e86dc2e3165fb9471c5e34f47898fa1aea56b0376f7fe422f",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T04:56:38.716Z",
+   "scenario": "real",
+   "msg": "the real arbiter's verdict FINALIZED 30.0 min after the wait began",
+   "label": "the real arbiter's verdict",
+   "finalizedAfterMinutes": 30
+  },
+  {
+   "t": "2026-10-18T04:56:56.821Z",
+   "scenario": "real",
+   "msg": "vault.refund 0x53330bc1a1 exec=FINISHED_WITH_RETURN",
+   "fn": "refund",
+   "hash": "0x53330bc1a13cc72d030b1d53f2bb451b69e0a64920d18f52e1537a09545e8478",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T04:57:19.792Z",
+   "scenario": "challenge",
+   "msg": "the challenge FINALIZED 30.1 min after the wait began",
+   "label": "the challenge",
+   "finalizedAfterMinutes": 30.1
+  },
+  {
+   "t": "2026-10-18T04:57:19.794Z",
+   "scenario": "challenge",
+   "msg": "waiting 31 min for the challenge window to close"
+  },
+  {
+   "t": "2026-10-18T05:26:52.128Z",
+   "scenario": "release",
+   "msg": "vault.release 0x31c0db7e63 exec=FINISHED_WITH_RETURN",
+   "fn": "release",
+   "hash": "0x31c0db7e6331d187177a809d5f7495a4874a2be2a2d7b7d8fafb78a82d3c0492",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T05:26:58.160Z",
+   "scenario": "real",
+   "msg": "the refund request FINALIZED 30.0 min after the wait began",
+   "label": "the refund request",
+   "finalizedAfterMinutes": 30
+  },
+  {
+   "t": "2026-10-18T05:27:04.661Z",
+   "scenario": "release",
+   "msg": "decision recorded: pay 0.002000 GEN to the claimant, no money moved yet",
+   "pay": 2000000000000000
+  },
+  {
+   "t": "2026-10-18T05:27:16.780Z",
+   "scenario": "real",
+   "msg": "vault.settle_refund 0x6652202afe exec=FINISHED_WITH_RETURN",
+   "fn": "settle_refund",
+   "hash": "0x6652202afe2f374467f16def4ebb8c4e3e9efbfd5e07b5a9ad16d56ca9f970d5",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T05:27:36.013Z",
+   "scenario": "challenge",
+   "msg": "release refused: \"The claim changed since it was queued, call cancel_queue\" (0x00b47e238a FINISHED_WITH_ERROR)",
+   "fn": "release",
+   "hash": "0x00b47e238afe7ff8e93986956f713fd17f48a581e44e38bb479e309787a0881b",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "The claim changed since it was queued, call cancel_queue",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T05:27:55.925Z",
+   "scenario": "challenge",
+   "msg": "refund refused: \"This claim is queued or decided, its deposits are committed\" (0x6eb5e20d6a FINISHED_WITH_ERROR)",
+   "fn": "refund",
+   "hash": "0x6eb5e20d6a130919c5b7b6d87105a48cfdcadec24d483d982c7eaad06446c5cb",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "This claim is queued or decided, its deposits are committed",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T05:28:14.883Z",
+   "scenario": "challenge",
+   "msg": "vault.cancel_queue 0xd007ad35a1 exec=FINISHED_WITH_RETURN",
+   "fn": "cancel_queue",
+   "hash": "0xd007ad35a1e6b79529bc2f38f6ce5bb06400eb4c07c22e1e0295f0e088c21bf9",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T05:28:36.678Z",
+   "scenario": "challenge",
+   "msg": "refund refused: \"Refunds open when the claim is denied, or 30 days after your deposit\" (0x15f5939e07 FINISHED_WITH_ERROR)",
+   "fn": "refund",
+   "hash": "0x15f5939e07811d5c3288535922139c2dd314fce996dc3c7c568c70b392237b56",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "Refunds open when the claim is denied, or 30 days after your deposit",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T05:28:50.004Z",
+   "scenario": "challenge",
+   "msg": "mock.put 0xad8cfeaac7 exec=FINISHED_WITH_RETURN",
+   "fn": "put",
+   "hash": "0xad8cfeaac742f45acbdba1fb551ea0e24cd317267d9b4cda810a0cf7b8ab7f7c",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T05:56:53.726Z",
+   "scenario": "release",
+   "msg": "the release decision FINALIZED 29.8 min after the wait began",
+   "label": "the release decision",
+   "finalizedAfterMinutes": 29.8
+  },
+  {
+   "t": "2026-10-18T05:57:15.253Z",
+   "scenario": "real",
+   "msg": "settle_refund FINALIZED 30.0 min after the wait began",
+   "label": "settle_refund",
+   "finalizedAfterMinutes": 30
+  },
+  {
+   "t": "2026-10-18T05:57:15.470Z",
+   "scenario": "real",
+   "msg": "depositor 4.888512 -> 4.890276 (+0.001765), deposited 0.002000",
+   "delta": "1764629085018800"
+  },
+  {
+   "t": "2026-10-18T05:57:24.663Z",
+   "scenario": "release",
+   "msg": "vault.settle 0xf0e9a04a55 exec=FINISHED_WITH_RETURN",
+   "fn": "settle",
+   "hash": "0xf0e9a04a55bbcd32ab4d2c3b5eff81f9ce847d9154914f52740234617bc8b5ff",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T05:58:49.359Z",
+   "scenario": "challenge",
+   "msg": "the denial FINALIZED 30.0 min after the wait began",
+   "label": "the denial",
+   "finalizedAfterMinutes": 30
+  },
+  {
+   "t": "2026-10-18T05:59:02.218Z",
+   "scenario": "challenge",
+   "msg": "vault.refund 0x7d80ddb373 exec=FINISHED_WITH_RETURN",
+   "fn": "refund",
+   "hash": "0x7d80ddb373f2433e4bf95e04a886f9bbb8a1e4d1b063ca53f8150516dfadf625",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T05:59:20.522Z",
+   "scenario": "challenge",
+   "msg": "vault.refund 0x5e827e24c5 exec=FINISHED_WITH_RETURN",
+   "fn": "refund",
+   "hash": "0x5e827e24c5d458941ffc138ed83ba7985c7ba7e653a2108098b413dfcf7be5af",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T06:27:28.208Z",
+   "scenario": "release",
+   "msg": "settle FINALIZED 30.0 min after the wait began",
+   "label": "settle",
+   "finalizedAfterMinutes": 30
+  },
+  {
+   "t": "2026-10-18T06:27:31.832Z",
+   "scenario": "release",
+   "msg": "settle refused: \"No payout decision to settle\" (refused before it was sent)",
+   "fn": "settle",
+   "hash": null,
+   "exec": "refused before it was sent",
+   "reason": "No payout decision to settle",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T06:27:31.833Z",
+   "scenario": "release",
+   "msg": "claimant balance 4.997985 -> 4.999985: +0.002000 (deposit 0.002000), claimant sent nothing",
+   "claimantDelta": "2000000000000000"
+  },
+  {
+   "t": "2026-10-18T06:29:02.700Z",
+   "scenario": "challenge",
+   "msg": "refund request A FINALIZED 29.7 min after the wait began",
+   "label": "refund request A",
+   "finalizedAfterMinutes": 29.7
+  },
+  {
+   "t": "2026-10-18T06:29:23.976Z",
+   "scenario": "challenge",
+   "msg": "refund request B FINALIZED 0.4 min after the wait began",
+   "label": "refund request B",
+   "finalizedAfterMinutes": 0.4
+  },
+  {
+   "t": "2026-10-18T06:29:37.669Z",
+   "scenario": "challenge",
+   "msg": "vault.settle_refund 0x9d7988aba6 exec=FINISHED_WITH_RETURN",
+   "fn": "settle_refund",
+   "hash": "0x9d7988aba61a4e82993af554edc0a0a83412bf8b5bcc198d3d2979eac95b66df",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T06:29:51.020Z",
+   "scenario": "challenge",
+   "msg": "vault.settle_refund 0xde9cd2b168 exec=FINISHED_WITH_RETURN",
+   "fn": "settle_refund",
+   "hash": "0xde9cd2b168e1af9e8d168d96d947469575ee511ac368ff5fbee6e676dde27e4e",
+   "exec": "FINISHED_WITH_RETURN"
+  },
+  {
+   "t": "2026-10-18T06:59:39.001Z",
+   "scenario": "challenge",
+   "msg": "settle_refund A FINALIZED 29.8 min after the wait began",
+   "label": "settle_refund A",
+   "finalizedAfterMinutes": 29.8
+  },
+  {
+   "t": "2026-10-18T06:59:49.949Z",
+   "scenario": "challenge",
+   "msg": "settle_refund B FINALIZED 0.2 min after the wait began",
+   "label": "settle_refund B",
+   "finalizedAfterMinutes": 0.2
+  },
+  {
+   "t": "2026-10-18T07:00:05.420Z",
+   "scenario": "challenge",
+   "msg": "settle_refund refused: \"No refund to settle\" (0xff560c0976 FINISHED_WITH_ERROR)",
+   "fn": "settle_refund",
+   "hash": "0xff560c0976e2ae7a91fd7828c37851f3abcdc3dd47bd7e86d3b2ce8d1a13796f",
+   "exec": "FINISHED_WITH_ERROR",
+   "reason": "No refund to settle",
+   "refused": true
+  },
+  {
+   "t": "2026-10-18T07:00:05.421Z",
+   "scenario": "challenge",
+   "msg": "depositor A 4.890150 -> 4.891150 (+0.001000), depositor B 0.144762 -> 0.145762 (+0.001000), each deposited 0.001000",
+   "aDelta": "1000000000000000",
+   "bDelta": "1000000000000000"
+  },
+  {
+   "t": "2026-10-18T07:00:05.421Z",
+   "scenario": "real",
+   "msg": "FAILED: real: the refund was 1764629085018800, expected 2000000000000000"
+  }
+ ],
+ "results": {
+  "release": {
+   "phase": "settled",
+   "claimantDelta": "2000000000000000",
+   "queueTx": "0x5de93cdc2c3eb2b06dc7351521958e878e6d24507f83d3c0263af18d55c9b6ac",
+   "releaseTx": "0x31c0db7e6331d187177a809d5f7495a4874a2be2a2d7b7d8fafb78a82d3c0492",
+   "settleTx": "0xf0e9a04a55bbcd32ab4d2c3b5eff81f9ce847d9154914f52740234617bc8b5ff"
+  },
+  "challenge": {
+   "aDelta": "1000000000000000",
+   "bDelta": "1000000000000000"
+  }
+ },
+ "accountingMock": {
+  "balance": 0,
+  "in_flight": 0,
+  "shortfall": 0,
+  "total_received": 4000000000000000,
+  "total_scheduled": 4000000000000000,
+  "unscheduled": 0
+ },
+ "accountingReal": {
+  "balance": 0,
+  "in_flight": 0,
+  "shortfall": 0,
+  "total_received": 2000000000000000,
+  "total_scheduled": 2000000000000000,
+  "unscheduled": 0
+ },
+ "finished": "2026-10-18T07:00:08.495Z"
+}
