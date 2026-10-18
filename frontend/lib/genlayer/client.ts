@@ -3,6 +3,7 @@
 import { createClient } from "genlayer-js";
 import { createWalletClient, custom, type WalletClient } from "viem";
 import { getGenLayerChain } from "./chains";
+import { findMetaMask } from "./provider";
 
 // GenLayer Network Configuration (from environment variables with fallbacks)
 // Defaults to Bradbury testnet (4221), where RecoveryArbiter is deployed.
@@ -63,7 +64,7 @@ export function getContractAddress(): string {
  */
 export function isMetaMaskInstalled(): boolean {
   if (typeof window === "undefined") return false;
-  return !!window.ethereum?.isMetaMask;
+  return !!findMetaMask()?.isMetaMask;
 }
 
 /**
@@ -71,7 +72,7 @@ export function isMetaMaskInstalled(): boolean {
  */
 export function getEthereumProvider(): EthereumProvider | null {
   if (typeof window === "undefined") return null;
-  return window.ethereum || null;
+  return findMetaMask();
 }
 
 /**
@@ -307,6 +308,9 @@ export function createGenLayerClient(address?: string) {
 
   if (address) {
     config.account = address as `0x${string}`;
+    // sign with MetaMask's own provider, not whichever wallet owns window.ethereum (several can be installed)
+    const provider = getEthereumProvider();
+    if (provider) config.provider = provider;
   }
 
   try {

@@ -12,6 +12,7 @@ import {
   GENLAYER_CHAIN_ID,
 } from "./client";
 import { error, userRejected, warning } from "../utils/toast";
+import { withTimeout } from "./provider";
 
 // localStorage key for tracking user's disconnect intent
 const DISCONNECT_FLAG = "wallet_disconnected";
@@ -89,9 +90,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         // Get current accounts (without requesting)
         // This will auto-reconnect if MetaMask has existing permissions
         // and user didn't explicitly disconnect
-        const accounts = await getAccounts();
-        const chainId = await getCurrentChainId();
-        const correctNetwork = await isOnGenLayerNetwork();
+        // A wallet that never answers must not leave the page on "Connecting": give up after a few seconds and show it as not connected.
+        const accounts = await withTimeout(getAccounts(), 5000, [] as string[]);
+        const chainId = await withTimeout(getCurrentChainId(), 5000, null as string | null);
+        const correctNetwork = chainId !== null && parseInt(chainId, 16) === GENLAYER_CHAIN_ID;
 
         setState({
           address: accounts[0] || null,
@@ -159,24 +161,38 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }));
     };
 
-    const handleDisconnect = () => {
+    // EIP-1193 "disconnect" means the provider lost its connection to the chain (it can happen mid-session, then "connect" follows).
+    // It does NOT mean the user disconnected this site, so ask the wallet what is true instead of trusting the event.
+    // The user's own Disconnect button is a different path and is respected through the stored flag.
+    const resync = async () => {
+      if (typeof window !== "undefined" && localStorage.getItem(DISCONNECT_FLAG) === "true") return;
+      const accounts = await withTimeout(getAccounts(), 5000, null as string[] | null);
+      if (accounts === null) return; // no answer: keep what we show rather than guess
+      const chainId = await withTimeout(getCurrentChainId(), 5000, null as string | null);
       setState((prev) => ({
         ...prev,
-        address: null,
-        isConnected: false,
+        address: accounts[0] || null,
+        chainId,
+        isConnected: accounts.length > 0,
+        isOnCorrectNetwork: chainId !== null && parseInt(chainId, 16) === GENLAYER_CHAIN_ID,
       }));
+    };
+    const handleDisconnect = () => {
+      void resync();
     };
 
     // Add event listeners
     provider.on("accountsChanged", handleAccountsChanged);
     provider.on("chainChanged", handleChainChanged);
     provider.on("disconnect", handleDisconnect);
+    provider.on("connect", resync);
 
     // Cleanup
     return () => {
       provider.removeListener("accountsChanged", handleAccountsChanged);
       provider.removeListener("chainChanged", handleChainChanged);
       provider.removeListener("disconnect", handleDisconnect);
+      provider.removeListener("connect", resync);
     };
   }, []);
 

@@ -1,4 +1,5 @@
 import { createClient } from "genlayer-js";
+import { getEthereumProvider } from "../genlayer/client";
 import { getGenLayerChain } from "../genlayer/chains";
 import type { Claim } from "./types";
 import {
@@ -54,6 +55,8 @@ class RecoveryArbiter {
 
     if (address) {
       config.account = address as `0x${string}`;
+      const provider = getEthereumProvider();
+      if (provider) config.provider = provider;
     }
 
     if (rpcUrl) {
@@ -71,6 +74,8 @@ class RecoveryArbiter {
       chain: getGenLayerChain(),
       account: address as `0x${string}`,
     };
+    const provider = getEthereumProvider();
+    if (provider) config.provider = provider;
 
     if (this.rpcUrl) {
       config.endpoint = this.rpcUrl;
