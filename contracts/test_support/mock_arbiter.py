@@ -43,6 +43,25 @@ class MockArbiter(gl.Contract):
             challenge_reason="", challenger="", challenge_count=challenges,
         )
 
+    @gl.public.write
+    def put_listed(self, claim_id: str, claimant: str, status: str, token: str, amount: int, challenges: int, wallet: str, reasoning: str, confidence: int) -> None:
+        """Same as put, plus the fields the app's claims list shows. Test only."""
+        self.claims[claim_id] = Claim(
+            id=claim_id, claimant=Address(claimant), drained_wallet=wallet, evidence_url="", statement="", signature="", drain_tx_hash="",
+            status=status, verdict_confidence=confidence, verdict_reasoning=reasoning, appeal_count=0, drained_token=token, drained_amount=amount,
+            challenge_reason="", challenger="", challenge_count=challenges,
+        )
+
+    @gl.public.view
+    def get_all_claims(self) -> dict:
+        """The same shape as RecoveryArbiter.get_all_claims, so the app can list these claims."""
+        return {claim_id: claim for claim_id, claim in self.claims.items()}
+
+    @gl.public.view
+    def get_claims_by_address(self, claimant: str) -> list:
+        who = Address(claimant)
+        return [c for _, c in self.claims.items() if c.claimant == who]
+
     @gl.public.view
     def get_claim(self, claim_id: str) -> Claim:
         if claim_id not in self.claims:

@@ -40,7 +40,13 @@ export function refusalReason(err: unknown): string | null {
     }
   }
   if (cur.length >= 10) runs.push(cur);
-  return runs.find((r) => r.includes(" ")) ?? null;
+  const sentence = runs.find((r) => r.includes(" ")) ?? null;
+  // The node aborts with this when the arbiter's finalized state does not exist yet (a verdict is only readable about
+  // 30 minutes after it is recorded). It is not a contract rule, so say what it means.
+  if (sentence && /invalid_contract|absent_runner/.test(sentence)) {
+    return "The arbiter's finalized state is not available yet. A verdict becomes readable about 30 minutes after it is recorded. Nothing was sent. Try again later.";
+  }
+  return sentence;
 }
 
 /** What each way a transaction can end without a result means, in plain words. */
@@ -61,8 +67,8 @@ export type VaultWriteName =
   | "settle_refund";
 
 /**
- * RecoveryReleaseVault client. Every write is checked first with a simulation, so a refusal shows the contract's own
- * reason before anything is sent, and the result is read from the transaction itself, not assumed from a hash.
+ * RecoveryReleaseVault client. Every write that carries no value is checked first with a simulation, so a refusal shows the
+ * contract's own reason before anything is sent, and the result is read from the transaction itself, not assumed from a hash.
  */
 class RecoveryReleaseVault {
   private contractAddress: `0x${string}`;
@@ -146,7 +152,9 @@ class RecoveryReleaseVault {
   ): Promise<string> {
     const request = { address: this.contractAddress, functionName, args, ...(value > BigInt(0) ? { value } : {}) };
 
-    if (typeof this.client.simulateWriteContract === "function") {
+    // The node's simulation cannot carry a value, so a payable call (a deposit) would be refused for "no amount" every time.
+    // Those are not simulated; the page already limits deposits to claims whose payout is still open.
+    if (value === BigInt(0) && typeof this.client.simulateWriteContract === "function") {
       try {
         await this.client.simulateWriteContract(request);
       } catch (error) {
