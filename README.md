@@ -178,6 +178,17 @@ Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
   - **Not covered live:** the real arbiter approving a claim. That needs a genuine drain,
     so the approved path is exercised live only against the stand-in arbiter and in the
     direct-mode tests.
+- **Vault page, live UI run (2026-10-18).** The Vault tab (`/app/vault`) was exercised end to
+  end with a real MetaMask wallet against a test pair (a stand-in arbiter with two claims, and
+  a vault pointed at it; `scripts/ui-run-*.mjs`): deposit on an approved and a denied claim,
+  queue release, record the decision after the one-hour window, pay the claimant, and record
+  and pay a refund. Both payouts landed exactly (the claimant gained 0.002 GEN, the depositor
+  got back 0.001 GEN less gas) and the vault ended at 0 with nothing in flight or short. The
+  run found and fixed two things: the node's simulation cannot carry a value, so deposits
+  must not be simulated (they were wrongly refused as "no amount"), and the node's abort when
+  the arbiter's finalized state does not exist yet now reads as "not available yet". It also
+  showed that paying the claimant right after the release decision works without waiting
+  for the decision to finalize; the money itself moves at finalization.
 - **Root-caused and fixed (2026-10-01), not actually a platform bug.** `release()`'s
   payout previously used `gl.get_contract_at(claimant).emit_transfer(value=amount)` -
   an internal Intelligent-Contract dispatch message. Claimants are EOAs, and for an
