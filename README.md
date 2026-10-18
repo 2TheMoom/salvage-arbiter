@@ -71,22 +71,43 @@ to know anything about what sits downstream.
 
 The attestation is also a real, consumable precondition, not just stored metadata:
 [`contracts/recovery_release_vault.py`](contracts/recovery_release_vault.py) is a
-working example downstream consumer. Anyone can deposit funds earmarked for a specific
-claim; `release()` calls RecoveryArbiter via `gl.get_contract_at(...)` and only pays out
-to the claim's claimant if `get_claim_status` reports `"approved"` **and** a verified
-drained asset/amount is bound to the claim - it never re-judges the claim itself, and
-it records that binding (`get_released_asset`/`get_released_amount`) so a real
-cross-chain router sizing an actual settlement has an authoritative, tamper-proof
-reference to check its own payout against. This is deliberately not Salvage's real
-production rescue router (which runs on other, non-GenLayer chains and holds real user
-funds); it's a small, independently deployable contract that proves the gating
-actually works.
+working example downstream consumer that holds real GEN (v2, below). Anyone can deposit
+GEN earmarked for a specific claim. It is paid to the claim's claimant only when
+RecoveryArbiter reports `"approved"` in **FINALIZED** state (an appealable verdict never
+moves money), a verified drained asset and amount are bound to the claim, and a one-hour
+challenge window has passed in which nobody froze it. It never re-judges the claim
+itself, and it records the verified asset and amount next to the payout
+(`get_released_asset`/`get_released_amount`) so a real cross-chain router sizing an
+actual settlement has an authoritative reference to check its own payout against.
+A depositor whose claim is denied (or never approved, after 30 days) can take back
+exactly their own deposit. This is deliberately not Salvage's real production rescue
+router (which runs on other, non-GenLayer chains and holds real user funds); it is a
+small, independently deployable contract that proves the gating works.
+
+**Vault v2: a decision and a payment never share a transaction.** v1 read the arbiter
+and paid the claimant inside one `release()` call. On a testnet where a cross-contract
+read can abort the caller before finality, that is the wrong place to move money. v2
+splits every money path in two:
+
+| Step | What it may do |
+|---|---|
+| `deposit_for_claim` | takes value, nothing else |
+| `queue_release` | reads the arbiter's finalized state, starts the challenge window, moves no money |
+| `cancel_queue` | if the claim no longer looks the way it did when queued (challenged, changed), drops the queue |
+| `release` | after the window, if the claim still looks the same, records the payout decision; moves no money |
+| `settle` | pays a recorded decision, once; reads nothing |
+| `refund` | a depositor records a refund of their own deposit when the claim is denied or stale |
+| `settle_refund` | pays a recorded refund, once; reads nothing |
+
+`get_accounting` shows every wei received, every wei scheduled out, and anything in
+flight, so a transfer that never lands is visible instead of silent.
 
 ## Live deployment
 Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
 - **SignatureVerifier:** [`0x1C3653cE0C5eD5659DB6ead99Ce221A027e80b23`](https://explorer-bradbury.genlayer.com/address/0x1C3653cE0C5eD5659DB6ead99Ce221A027e80b23)
 - **RecoveryArbiter:** [`0x3e5515cFd2CdFed30712b1b958e57D09143943b3`](https://explorer-bradbury.genlayer.com/address/0x3e5515cFd2CdFed30712b1b958e57D09143943b3)
-- **RecoveryReleaseVault** (example downstream consumer): [`0x0E5F3995B5EfB95854290F5c338f2cDF3cE71Bd1`](https://explorer-bradbury.genlayer.com/address/0x0E5F3995B5EfB95854290F5c338f2cDF3cE71Bd1)
+- **RecoveryReleaseVault v2** (example downstream consumer, reads this RecoveryArbiter): [`0x3312E96cDd618d090A72b89F5c1a3D713881Ff89`](https://explorer-bradbury.genlayer.com/address/0x3312E96cDd618d090A72b89F5c1a3D713881Ff89)
+- **Vault v2 test fixtures** (test money only, see "Vault v2 live verification"): a second vault [`0x7583068e8BB892433484fe46BA7838370D9edBf8`](https://explorer-bradbury.genlayer.com/address/0x7583068e8BB892433484fe46BA7838370D9edBf8) pointed at the test-only [MockArbiter `0x38343d8701eB861b50B91687698295E15c3e3866`](https://explorer-bradbury.genlayer.com/address/0x38343d8701eB861b50B91687698295E15c3e3866), which lets anyone set any claim status. It must never be used as a real arbiter.
 - **A real gotcha hit redeploying this set:** `genlayer deploy --contract X --args Y`
   (the bare CLI path, as opposed to this repo's own `deploy/deployScript.ts`) mis-typed
   a plain 40-hex-char address string as an `Address` calldata value instead of the `str`
@@ -106,7 +127,7 @@ Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
   a plausible-looking address. The value-bearing calls themselves were run by the
   account holder directly (via `genlayer-js`, since the CLI has no flag to attach
   native value), not by Claude, which had no safe access to a signing key for this.
-- Verified via 109 passing direct-mode tests (`pytest tests/direct/`) across all three
+- Verified via 165 passing direct-mode tests (`pytest tests/direct/`, 62 of them for the vault) across all three
   contracts, covering the drain-transaction check (including the reverted-tx and
   no-asset-moved deny paths, that a genuine Transfer log is required rather than any
   log at all, and that a token-style drain with zero native value but a real Transfer
@@ -129,6 +150,34 @@ Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
   works, not just that the two contracts compile against each other. That specific
   cycle hasn't been re-run against the current addresses yet (see the gotcha note
   above) - the vault's `deposit_for_claim`/`release` logic is unchanged since then.
+- **Vault v2 live verification (2026-10-18).** An end to end run on Bradbury with separate
+  depositor, claimant and third-party wallets (`scripts/vault-e2e.mjs`, full log in
+  `scripts/vault-e2e-log.json`). Every refusal was simulated first so the contract's own
+  reason is recorded, then sent so the refusal is on chain.
+  - **Release** (vault on the stand-in arbiter): a claim approved in the arbiter's
+    FINALIZED state was queued; `release` was refused inside the challenge window, then
+    recorded after it, then `settle` paid in its own transaction. The claimant gained
+    exactly the deposit (0.002 GEN).
+  - **Challenge** (same vault): a queued claim was challenged during the window;
+    `release` was refused ("The claim changed since it was queued"), the queue was
+    cancelled, a refund was refused while the claim was merely challenged, then after the
+    denial both depositors took back exactly their own 0.001 GEN.
+  - **Real arbiter** (vault v2 above): a real claim was filed on the deployed
+    RecoveryArbiter with a real ownership signature; the vault refused to queue it while
+    it was unfinalized and again while `pending`; the real arbiter denied it (a bogus
+    drain is cited, no real victim); the depositor recorded a refund and `settle_refund`
+    paid it.
+  - **Accounting:** both vaults end with nothing held or in flight and nothing short
+    (real vault: 0.002 GEN received, 0.002 GEN paid; stand-in vault: 0.004 GEN each).
+  - **A harness note, not a vault bug.** The script reported the real-arbiter refund as
+    0.001764629 GEN instead of 0.002. The depositor wallet was also sending two
+    transactions for the challenge scenario, running concurrently, inside the balance
+    window; each cost 117,685,457,490,600 wei of gas (measured from the chain's balance
+    history), and 1,764,629,085,018,800 + 2 x 117,685,457,490,600 = 2,000,000,000,000,000
+    exactly. The vault paid the full deposit; the script did not net out its own gas.
+  - **Not covered live:** the real arbiter approving a claim. That needs a genuine drain,
+    so the approved path is exercised live only against the stand-in arbiter and in the
+    direct-mode tests.
 - **Root-caused and fixed (2026-10-01), not actually a platform bug.** `release()`'s
   payout previously used `gl.get_contract_at(claimant).emit_transfer(value=amount)` -
   an internal Intelligent-Contract dispatch message. Claimants are EOAs, and for an
@@ -161,7 +210,9 @@ Deployed on **GenLayer Bradbury Testnet** (chain ID 4221):
   [signature + chain-check + first competing-claim pass](https://explorer-bradbury.genlayer.com/address/0x1310D205603851E9c78182b67F52Fe6a2B60041C),
   [appeal-path only](https://explorer-bradbury.genlayer.com/address/0xdc1801D971483eCf4Afd582c19a176419F61Bbcc),
   [original, pre-appeal](https://explorer-bradbury.genlayer.com/address/0x228a8083aBc7961bef6cAeC2C0f19F288A3c5D03).
-  Previous RecoveryReleaseVault deployments (superseded): pointed at the pre-split
+  Previous RecoveryReleaseVault deployments (superseded): v1, which paid inside `release()`,
+  [`0x0E5F3995B5EfB95854290F5c338f2cDF3cE71Bd1`](https://explorer-bradbury.genlayer.com/address/0x0E5F3995B5EfB95854290F5c338f2cDF3cE71Bd1);
+  earlier ones pointed at the pre-split
   arbiter above: [`0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772`](https://explorer-bradbury.genlayer.com/address/0x134eafB7Aac5B46A2C2E30FA246Eba1d29D42772);
   pointed at the pre-asset-movement-check arbiter: [`0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05`](https://explorer-bradbury.genlayer.com/address/0x4531155c2198640fe97aada99Fa1Ffe09DFD8b05);
   pre-Payee-fix, same arbiter as current: [`0x305a2eb4A93A2e76BC620ab85C85C76a080e000d`](https://explorer-bradbury.genlayer.com/address/0x305a2eb4A93A2e76BC620ab85C85C76a080e000d)
@@ -270,8 +321,11 @@ the original `football_bets.py` sample contract and its tests are kept around un
 - `contracts/signature_verifier.py` — SignatureVerifier, a small stateless sibling
   holding the EIP-191/secp256k1 ownership-proof logic, called cross-contract from
   `submit_claim` (split out to clear Bradbury's deploy gas ceiling - see "Design notes")
-- `contracts/recovery_release_vault.py` — RecoveryReleaseVault, a working example
-  downstream consumer of RecoveryArbiter's attestation
+- `contracts/recovery_release_vault.py`: RecoveryReleaseVault v2, a working example
+  downstream consumer of RecoveryArbiter's attestation (queue, challenge window, pull refunds)
+- `contracts/test_support/mock_arbiter.py`: TEST ONLY stand-in arbiter with the same
+  `get_claim` shape, used to exercise the vault's money paths live
+- `scripts/vault-e2e.mjs`, `scripts/deploy-contract.mjs`: the live vault run and a deploy helper
 - `tests/direct/test_recovery_arbiter.py` — direct-mode tests (in-memory, mocked web/LLM,
   real cross-contract signature verification via a custom dispatch hook)
 - `tests/direct/test_signature_verifier.py` — direct-mode tests for the verifier in isolation
@@ -423,12 +477,13 @@ The app will be available at http://localhost:3000/.
    signature) -> bool`. `submit_claim` calls it cross-contract instead of embedding the
    secp256k1 math locally, purely to keep RecoveryArbiter's own source under Bradbury's
    deploy gas ceiling (see "Design notes").
-7. **RecoveryReleaseVault** (`contracts/recovery_release_vault.py`) — a separate,
+7. **RecoveryReleaseVault v2** (`contracts/recovery_release_vault.py`), a separate,
    independently deployed example consumer. `deposit_for_claim(claim_id)` escrows value
-   for a specific claim; `release(claim_id)` calls RecoveryArbiter's `get_claim_status`
-   via `gl.get_contract_at(...)` and only pays the deposit out to `get_claim_claimant`
-   if the status is `"approved"` **and** a verified asset/amount is bound to the claim -
-   proving the attestation can actually gate a fund release, not just sit as unused
+   for a specific claim; `queue_release` reads RecoveryArbiter's FINALIZED claim and
+   starts a one-hour challenge window; `release` records the payout decision once the
+   window has passed and the claim is unchanged; `settle` pays it in a separate
+   transaction. Depositors of a denied claim use `refund` then `settle_refund`.
+   Proves the attestation can actually gate a fund release, not just sit as unused
    metadata.
 
 ### A CLI gotcha worth knowing
